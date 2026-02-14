@@ -1,0 +1,74 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: >
+          dotnet publish src/MusicPlayer -c Release
+          -r win-x64
+          --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish/
+
+      - name: Create zip archive
+        run: |
+          cd publish
+          zip -r ../MusicPlayer-win-x64.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicPlayer-win-x64
+          path: MusicPlayer-win-x64.zip
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Music Player ${{ inputs.version }}
+          body: |
+            ## Music Player for Where Winds Meet ${{ inputs.version }}
+
+            ### Download
+            - **Windows (x64):** `MusicPlayer-win-x64.zip`
+
+            ### Quick Start
+            1. Download and extract `MusicPlayer-win-x64.zip`
+            2. Run `MusicPlayer.exe convert "song name"` to search & convert
+            3. Run `MusicPlayer.exe play songs/song.json` to auto-play in game
+          files: |
+            artifacts/**/*.zip
+          generate_release_notes: true

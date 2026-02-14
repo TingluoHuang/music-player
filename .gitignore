@@ -1,0 +1,17 @@
+## .NET
+bin/
+obj/
+publish/
+
+## Build outputs
+*.user
+*.suo
+*.cache
+
+## MIDI cache & converted songs
+cache/
+songs/
+
+## OS
+.DS_Store
+Thumbs.db
