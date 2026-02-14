@@ -19,6 +19,7 @@ static async Task<int> RunAsync(string[] args)
         "search" => await HandleSearchAsync(args[1..]),
         "convert" => await HandleConvertAsync(args[1..]),
         "play" => await HandlePlayAsync(args[1..]),
+        "test" => HandleTest(args[1..]),
         "mapping" => HandleMapping(),
         "help" or "--help" or "-h" => PrintUsage(),
         _ => PrintUsage($"Unknown command: {command}")
@@ -293,6 +294,49 @@ static int HandleMapping()
     return 0;
 }
 
+static int HandleTest(string[] args)
+{
+    int delay = 3;
+    char key = 'Z'; // Default to Z (C4, lowest note)
+
+    for (int i = 0; i < args.Length; i++)
+    {
+        switch (args[i])
+        {
+            case "--delay":
+                if (++i < args.Length) int.TryParse(args[i], out delay);
+                break;
+            default:
+                if (!args[i].StartsWith("--") && args[i].Length > 0)
+                    key = char.ToUpper(args[i][0]);
+                break;
+        }
+    }
+
+    Console.WriteLine("=== Keyboard Input Test ===");
+    Console.WriteLine($"Key to send: {key}");
+    Console.WriteLine("Switch to the game window now!");
+    Console.WriteLine();
+
+    for (int i = delay; i > 0; i--)
+    {
+        Console.Write($"\rSending in {i}...");
+        Thread.Sleep(1000);
+    }
+    Console.WriteLine("\rSending!         ");
+
+    var player = new KeyboardPlayer();
+    player.TestKey(key);
+
+    Console.WriteLine();
+    Console.WriteLine("If the game didn't receive the key:");
+    Console.WriteLine("  1. Make sure the game window is focused");
+    Console.WriteLine("  2. Try running as Administrator");
+    Console.WriteLine("  3. Check if the game's anti-cheat blocks simulated input");
+
+    return 0;
+}
+
 static int PrintUsage(string? error = null)
 {
     if (error != null)
@@ -306,6 +350,7 @@ static int PrintUsage(string? error = null)
           convert <song or file>  Search, download & convert (or convert a local .mid)
           play <name or file>     Play a converted song via keyboard simulation
           search <song>           Search & download MIDI files
+          test [key]              Test a single key press (debug input issues)
           mapping                 Show the key-to-note mapping
 
         Convert options:
@@ -316,11 +361,15 @@ static int PrintUsage(string? error = null)
           --speed <multiplier>    Playback speed (0.5 = slow, 2.0 = fast, default: 1.0)
           --dry-run               Show notes with timing info without sending keystrokes
 
+        Test options:
+          --delay <seconds>       Countdown before sending (default: 3)
+
         Examples:
           musicplayer convert "twinkle twinkle little star"  (search → download → convert)
           musicplayer convert downloaded.mid                  (convert local file)
           musicplayer play twinkle --dry-run                  (preview)
           musicplayer play twinkle --delay 5                  (play in game)
+          musicplayer test Z --delay 5                        (test single key)
         """);
 
     return error != null ? 1 : 0;

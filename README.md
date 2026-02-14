@@ -21,6 +21,7 @@ This tool:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - Windows (for auto-play keyboard simulation; conversion works on any OS)
+- **Run as Administrator** — required for sending keystrokes to games that run elevated
 
 ## Build
 
@@ -106,6 +107,23 @@ The `play` command supports smart song lookup:
 dotnet run --project src/MusicPlayer -- mapping
 ```
 
+### Test Keyboard Input
+
+If the game doesn't respond to key presses, use the test command to debug:
+
+```bash
+# Test a single key press (default: Z)
+dotnet run --project src/MusicPlayer -- test Z --delay 5
+
+# Test a different key
+dotnet run --project src/MusicPlayer -- test A --delay 5
+```
+
+Switch to the game window during the countdown. If the note doesn't play:
+1. Make sure the game window is focused
+2. **Run as Administrator** — most games run elevated, and Windows blocks simulated input from a non-admin process to an admin process (UIPI). Open Command Prompt or PowerShell as Administrator, then run the app from there
+3. Check if anti-cheat is blocking simulated input
+
 ## All Options
 
 ```
@@ -113,6 +131,7 @@ Commands:
   convert <song or file>  Search, download & convert (or convert a local .mid)
   play <name or file>     Play a converted song via keyboard simulation
   search <song>           Search & download MIDI files
+  test [key]              Test a single key press (debug input issues)
   mapping                 Show key-to-note mapping
 
 Convert options:
@@ -122,6 +141,9 @@ Play options:
   --delay <seconds>       Countdown before playing (default: 3)
   --speed <multiplier>    Playback speed (0.5 = slow, 2.0 = fast, default: 1.0)
   --dry-run               Show notes with timing info without sending keystrokes
+
+Test options:
+  --delay <seconds>       Countdown before sending (default: 3)
 ```
 
 ## Song JSON Format

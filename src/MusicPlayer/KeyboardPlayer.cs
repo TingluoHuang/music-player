@@ -110,8 +110,9 @@ public class KeyboardPlayer
         var startTime = System.Diagnostics.Stopwatch.GetTimestamp();
         var tickFrequency = (double)System.Diagnostics.Stopwatch.Frequency;
 
-        // Schedule all key presses and releases
-        var events = BuildTimeline(song, speedMultiplier);
+        // Build note tap events (press + immediate release, no hold duration)
+        // Game only cares about the key tap, not how long it's held
+        var events = BuildTapTimeline(song, speedMultiplier);
 
         foreach (var evt in events)
         {
@@ -132,54 +133,47 @@ public class KeyboardPlayer
                     Thread.SpinWait(100); // Busy-wait for precision
             }
 
-            // Show progress on key press
-            if (evt.IsPress && totalDuration > 0)
+            // Show progress
+            if (totalDuration > 0)
             {
                 double progress = (evt.Time / totalDuration) * 100;
-                Console.Write($"\r  {ProgressBar(progress)}  {evt.Time:F1}s / {totalDuration:F1}s");
+                string keys = string.Join("+", evt.Keys);
+                Console.Write($"\r  {ProgressBar(progress)}  {evt.Time:F1}s / {totalDuration:F1}s  {keys,-8}");
             }
 
-            // Execute the event
-            if (evt.IsPress)
-                PressKey(evt.Key);
-            else
-                ReleaseKey(evt.Key);
+            // Tap each key: press + brief hold + release
+            foreach (char key in evt.Keys)
+                PressKey(key);
+
+            Thread.Sleep(30); // Brief hold for the game to register
+
+            foreach (char key in evt.Keys)
+                ReleaseKey(key);
         }
 
         Console.WriteLine(); // Clear progress line
     }
 
-    private List<TimelineEvent> BuildTimeline(Song song, double speedMultiplier)
+    private List<TapEvent> BuildTapTimeline(Song song, double speedMultiplier)
     {
-        var timeline = new List<TimelineEvent>();
+        var taps = new List<TapEvent>();
 
         foreach (var note in song.Notes)
         {
             double time = note.Time / speedMultiplier;
-            double duration = note.Duration / speedMultiplier;
+            var keys = note.Keys
+                .Where(k => k.Length > 0)
+                .Select(k => char.ToUpper(k[0]))
+                .Where(k => VirtualKeyCodes.ContainsKey(k))
+                .ToList();
 
-            foreach (string keyStr in note.Keys)
+            if (keys.Count > 0)
             {
-                if (keyStr.Length == 0) continue;
-                char key = char.ToUpper(keyStr[0]);
-
-                timeline.Add(new TimelineEvent
-                {
-                    Time = time,
-                    Key = key,
-                    IsPress = true
-                });
-
-                timeline.Add(new TimelineEvent
-                {
-                    Time = time + duration,
-                    Key = key,
-                    IsPress = false
-                });
+                taps.Add(new TapEvent { Time = time, Keys = keys });
             }
         }
 
-        return timeline.OrderBy(e => e.Time).ThenBy(e => e.IsPress ? 0 : 1).ToList();
+        return taps.OrderBy(e => e.Time).ToList();
     }
 
     private void PressKey(char key)
@@ -212,12 +206,41 @@ public class KeyboardPlayer
         return $"[{new string('█', filled)}{new string('░', width - filled)}] {percent:F0}%";
     }
 
+    /// <summary>
+    /// Send a test key press to verify the game receives input.
+    /// Press and immediately release the specified key.
+    /// </summary>
+    public void TestKey(char key)
+    {
+        if (!_isWindows)
+        {
+            Console.WriteLine("Keyboard simulation requires Windows.");
+            return;
+        }
+
+        key = char.ToUpper(key);
+        if (!VirtualKeyCodes.TryGetValue(key, out ushort vk))
+        {
+            Console.WriteLine($"Unknown key: {key}");
+            return;
+        }
+
+        Console.WriteLine($"Sending key '{key}' (VK=0x{vk:X2}, Scan=0x{MapVirtualKey(vk, MAPVK_VK_TO_VSC):X2})...");
+        PressKey(key);
+        Thread.Sleep(50); // Brief hold
+        ReleaseKey(key);
+        Console.WriteLine("Key sent. Did the game receive it?");
+    }
+
     #region Win32 P/Invoke
 
     private static void SendKeyEvent(ushort virtualKeyCode, bool isKeyUp)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return;
+
+        // Get the hardware scan code — games using DirectInput/Raw Input need this
+        ushort scanCode = (ushort)MapVirtualKey(virtualKeyCode, MAPVK_VK_TO_VSC);
 
         var input = new INPUT
         {
@@ -227,22 +250,32 @@ public class KeyboardPlayer
                 ki = new KEYBDINPUT
                 {
                     wVk = virtualKeyCode,
-                    wScan = 0,
-                    dwFlags = isKeyUp ? KEYEVENTF_KEYUP : 0u,
+                    wScan = scanCode,
+                    dwFlags = KEYEVENTF_SCANCODE | (isKeyUp ? KEYEVENTF_KEYUP : 0u),
                     time = 0,
                     dwExtraInfo = IntPtr.Zero
                 }
             }
         };
 
-        SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        uint result = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        if (result == 0)
+        {
+            int error = Marshal.GetLastWin32Error();
+            Console.Error.WriteLine($"SendInput failed (error {error}). Try running as Administrator.");
+        }
     }
 
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_SCANCODE = 0x0008;
+    private const uint MAPVK_VK_TO_VSC = 0;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
@@ -269,10 +302,9 @@ public class KeyboardPlayer
 
     #endregion
 
-    private class TimelineEvent
+    private class TapEvent
     {
         public double Time { get; set; }
-        public char Key { get; set; }
-        public bool IsPress { get; set; }
+        public List<char> Keys { get; set; } = new();
     }
 }
