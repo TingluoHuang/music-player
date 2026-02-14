@@ -2,6 +2,17 @@
 
 Convert any song into keyboard sequences and auto-play them in the Where Winds Meet music system.
 
+## Quick Start
+
+1. Download `MusicPlayer.exe` from [Releases](https://github.com/TingluoHuang/music-player/releases) (or [build from source](#building-from-source))
+2. **Right-click → Run as Administrator** (required for the game to receive keystrokes)
+3. Convert and play:
+
+```bash
+musicplayer convert "twinkle twinkle little star"
+musicplayer play twinkle --delay 5
+```
+
 ## How It Works
 
 The game maps 21 keyboard keys to 3 octaves of a diatonic (C major) scale:
@@ -13,87 +24,39 @@ Low:   Z=C4  X=D4  C=E4  V=F4  B=G4  N=A4  M=B4
 ```
 
 This tool:
-1. **Searches** for MIDI files online ([Midis101](https://midis101.com) for free direct download, [MidiShow](https://www.midishow.com) for Chinese songs)
-2. **Converts** MIDI notes into the 21-key layout (pitch remapping, quantization, chord simplification)
-3. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`
-
-## Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- Windows (for auto-play keyboard simulation; conversion works on any OS)
-- **Run as Administrator** — required for sending keystrokes to games that run elevated
-
-## Build
-
-```bash
-git clone https://github.com/TingluoHuang/music-player.git
-cd music-player
-dotnet build
-dotnet test
-```
-
-## Workflow
-
-```bash
-# One command: search, download, and convert
-dotnet run --project src/MusicPlayer -- convert "twinkle twinkle little star"
-
-# Play — just use the song name, no need to remember file paths
-dotnet run --project src/MusicPlayer -- play twinkle --delay 5
-
-# Preview without sending keystrokes
-dotnet run --project src/MusicPlayer -- play twinkle --dry-run
-```
-
-Or convert a local MIDI file:
-
-```bash
-dotnet run --project src/MusicPlayer -- convert mysong.mid
-```
+1. **Searches** for MIDI files online ([FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [MidiShow](https://www.midishow.com))
+2. **Validates** downloads automatically — only shows files that are confirmed valid
+3. **Converts** MIDI notes into the 21-key layout (pitch remapping, quantization, chord simplification)
+4. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`
 
 ## Usage
 
-### Search for MIDI Files
+### Convert a Song
 
 ```bash
-# Search by song name — downloads automatically from Midis101
-dotnet run --project src/MusicPlayer -- search "twinkle twinkle little star"
-
-# Chinese songs — tries Midis101 first, falls back to MidiShow (browser)
-dotnet run --project src/MusicPlayer -- search "月亮代表我的心"
-```
-
-Results from [Midis101](https://midis101.com) are downloaded directly. Results from [MidiShow](https://www.midishow.com) open in your browser (login required to download).
-
-### Convert a MIDI File
-
-```bash
-# Search online and convert in one step
-dotnet run --project src/MusicPlayer -- convert "twinkle twinkle little star"
+# Search online, download, and convert in one step
+musicplayer convert "twinkle twinkle little star"
 
 # Or convert a local MIDI file
-dotnet run --project src/MusicPlayer -- convert mysong.mid
+musicplayer convert mysong.mid
 ```
 
 If the MIDI has multiple tracks, you'll be prompted to pick one.
 
-### Play a Converted Song
+### Play a Song
 
 ```bash
 # Play by song name — searches songs/ directory automatically
-dotnet run --project src/MusicPlayer -- play twinkle --delay 5
-
-# Or use the full path
-dotnet run --project src/MusicPlayer -- play songs/mysong.json
+musicplayer play twinkle --delay 5
 
 # List all available songs
-dotnet run --project src/MusicPlayer -- play
+musicplayer play
 
-# Dry run — shows each note with timing and a progress bar
-dotnet run --project src/MusicPlayer -- play twinkle --dry-run
+# Preview without sending keystrokes
+musicplayer play twinkle --dry-run
 
 # Play at half speed
-dotnet run --project src/MusicPlayer -- play twinkle --speed 0.5
+musicplayer play twinkle --speed 0.5
 ```
 
 The `play` command supports smart song lookup:
@@ -101,30 +64,25 @@ The `play` command supports smart song lookup:
 - Partial match: `play twinkle` also finds `songs/Twinkle-Twinkle-Little-Star.json`
 - Multiple matches: prompts you to pick one
 
+### Search for MIDI Files
+
+```bash
+# Search by song name
+musicplayer search "twinkle twinkle little star"
+
+# Chinese songs — MidiShow has the largest Chinese catalog
+musicplayer search "月亮代表我的心"
+```
+
+Results from [FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), and [Midis101](https://midis101.com) are downloaded and validated automatically. Results from [MidiShow](https://www.midishow.com) open in your browser (login required to download).
+
 ### View Key Mapping
 
 ```bash
-dotnet run --project src/MusicPlayer -- mapping
+musicplayer mapping
 ```
 
-### Test Keyboard Input
-
-If the game doesn't respond to key presses, use the test command to debug:
-
-```bash
-# Test a single key press (default: Z)
-dotnet run --project src/MusicPlayer -- test Z --delay 5
-
-# Test a different key
-dotnet run --project src/MusicPlayer -- test A --delay 5
-```
-
-Switch to the game window during the countdown. If the note doesn't play:
-1. Make sure the game window is focused
-2. **Run as Administrator** — most games run elevated, and Windows blocks simulated input from a non-admin process to an admin process (UIPI). Open Command Prompt or PowerShell as Administrator, then run the app from there
-3. Check if anti-cheat is blocking simulated input
-
-## All Options
+### All Options
 
 ```
 Commands:
@@ -146,9 +104,20 @@ Test options:
   --delay <seconds>       Countdown before sending (default: 3)
 ```
 
+## Troubleshooting
+
+**Game doesn't receive key presses:**
+
+1. Make sure the game window is focused before the countdown ends
+2. **Run as Administrator** — most games run elevated, and Windows blocks simulated input from a non-admin process (UIPI). Right-click the exe or open your terminal as Administrator
+3. Use `musicplayer test Z --delay 5` to test a single key press
+4. If the test key works but songs sound wrong, try `--dry-run` to preview
+
+**Corrupt MIDI files:** The tool pre-downloads and validates all MIDI files before showing results. If you still see issues with locally provided files, try a different source.
+
 ## Song JSON Format
 
-Converted songs are saved as JSON files in the `songs/` directory:
+Converted songs are saved as JSON in `songs/`:
 
 ```json
 {
@@ -164,7 +133,40 @@ Converted songs are saved as JSON files in the `songs/` directory:
 
 You can manually edit these files to fix notes or adjust timing.
 
-## Project Structure
+---
+
+## Development
+
+### Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- Windows (for auto-play keyboard simulation; conversion works on any OS)
+
+### Building from Source
+
+```bash
+git clone https://github.com/TingluoHuang/music-player.git
+cd music-player
+dotnet build
+dotnet test
+```
+
+Run from source:
+
+```bash
+dotnet run --project src/MusicPlayer -- convert "twinkle twinkle little star"
+dotnet run --project src/MusicPlayer -- play twinkle --delay 5
+```
+
+### Publishing a Single Executable
+
+```bash
+dotnet publish src/MusicPlayer -c Release -r win-x64 --self-contained -o publish/
+```
+
+Output: `publish/MusicPlayer.exe` — single file, no .NET runtime needed. Copy it anywhere or add it to your `PATH`.
+
+### Project Structure
 
 ```
 music-player/
@@ -172,7 +174,7 @@ music-player/
 ├── src/MusicPlayer/
 │   ├── Program.cs               # CLI entry point
 │   ├── NoteMapping.cs           # 21-key ↔ note mapping
-│   ├── MidiSearcher.cs          # MIDI search & download (Midis101 + MidiShow)
+│   ├── MidiSearcher.cs          # MIDI search & download (FreeMidi + MidiWorld + Midis101 + MidiShow)
 │   ├── MidiConverter.cs         # MIDI → JSON conversion pipeline
 │   ├── KeyboardPlayer.cs        # Auto-player (Win32 SendInput)
 │   └── Models/
@@ -181,21 +183,4 @@ music-player/
 └── tests/MusicPlayer.Tests/
     ├── NoteMappingTests.cs
     └── MidiConverterTests.cs
-```
-
-## Publishing a Single Executable
-
-```bash
-dotnet publish src/MusicPlayer -c Release -r win-x64 --self-contained -o publish/
-
-# Output: publish/MusicPlayer.exe (single file, no .NET runtime needed)
-```
-
-The published executable is in the `publish/` folder. Copy it anywhere or add it to your `PATH`, then use it directly:
-
-```bash
-musicplayer convert "twinkle twinkle little star"
-musicplayer convert downloaded.mid
-musicplayer play twinkle --delay 5
-musicplayer mapping
 ```

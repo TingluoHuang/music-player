@@ -130,11 +130,15 @@ static async Task<int> ConvertFile(string file, double quantize)
     catch (NotEnoughBytesException)
     {
         Console.Error.WriteLine($"Error: '{file}' is not a valid MIDI file (truncated or corrupt).");
+        Console.Error.WriteLine($"  File size: {new FileInfo(file).Length:N0} bytes");
+        Console.Error.WriteLine($"  The source file may be damaged. Try a different search result.");
         return 1;
     }
     catch (InvalidChunkSizeException)
     {
         Console.Error.WriteLine($"Error: '{file}' is not a valid MIDI file (invalid chunk size).");
+        Console.Error.WriteLine($"  File size: {new FileInfo(file).Length:N0} bytes");
+        Console.Error.WriteLine($"  The source file may be damaged. Try a different search result.");
         return 1;
     }
     catch (Exception ex) when (ex.Message.Contains("MIDI") || ex.Message.Contains("midi"))
