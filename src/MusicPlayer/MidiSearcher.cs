@@ -8,7 +8,7 @@ namespace MusicPlayer;
 /// <summary>
 /// Searches multiple MIDI sources and downloads files.
 /// Primary: FreeMidi, MidiWorld (free direct download)
-/// Secondary: Midis101 (free direct download)
+/// Secondary: Midis101, Ichigos, VGMusic (free direct download)
 /// Fallback: MidiShow (Chinese catalog, browser-only download)
 /// </summary>
 public class MidiSearcher
@@ -42,6 +42,8 @@ public class MidiSearcher
             ("FreeMidi", SearchFreeMidiAsync),
             ("MidiWorld", SearchMidiWorldAsync),
             ("Midis101", SearchMidis101Async),
+            ("Ichigos", SearchIchigosAsync),
+            ("VGMusic", SearchVGMusicAsync),
         };
 
         var searchTasks = tasks.Select(async t =>
@@ -55,8 +57,18 @@ public class MidiSearcher
         }).ToArray();
 
         var results = await Task.WhenAll(searchTasks);
-        foreach (var r in results)
-            all.AddRange(r);
+
+        // Interleave results round-robin across sources so that validation
+        // (which stops after N good files) doesn't starve slower sources.
+        int maxLen = results.Max(r => r.Count);
+        for (int i = 0; i < maxLen; i++)
+        {
+            foreach (var sourceResults in results)
+            {
+                if (i < sourceResults.Count)
+                    all.Add(sourceResults[i]);
+            }
+        }
 
         // Then search MidiShow (larger Chinese catalog, browser-only)
         try
@@ -212,7 +224,7 @@ public class MidiSearcher
             Console.WriteLine($"\nOpening in browser: {selected.Title}");
             Console.WriteLine($"  URL: {selected.BrowserResult.PageUrl}");
             Console.WriteLine($"\nDownload the MIDI file from the page, then convert it with:");
-            Console.WriteLine($"  musicplayer convert <downloaded.mid>");
+            Console.WriteLine($"  ./MusicPlayer.exe convert <downloaded.mid>");
             Console.WriteLine($"  (or: dotnet run --project src/MusicPlayer -- convert <downloaded.mid>)");
 
             try { OpenInBrowser(selected.BrowserResult.PageUrl); }
@@ -470,6 +482,225 @@ public class MidiSearcher
             .Select(g => g.First())
             .Take(10)
             .ToList();
+    }
+
+    // ──────────────────────────────────────────────
+    // Ichigo's Sheet Music — anime & game piano MIDIs (direct download)
+    // ──────────────────────────────────────────────
+
+    private async Task<List<SearchResult>> SearchIchigosAsync(string query)
+    {
+        var results = new List<SearchResult>();
+
+        // Ichigo's uses a POST form: action="/sheets", fields q=1&qtitle={query}
+        var content = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("q", "1"),
+            new KeyValuePair<string, string>("qtitle", query),
+        });
+
+        var response = await _httpClient.PostAsync("https://ichigos.com/sheets", content);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        // Page structure (flat children of <td class="content">):
+        //   <span class='title2'><a>Game Name</a></span><br><br>
+        //   Song Title (Transcribed by Author)<br>
+        //   <i>instrument</i> | <a>pdf</a> | <a href='...type=midi...'>midi</a> | <br><br>
+        //
+        // Strategy: walk flat child nodes, track current game header,
+        // and for each midi link find the song title text preceding it.
+
+        var contentNode = doc.DocumentNode.SelectSingleNode("//td[@class='content']");
+        if (contentNode == null) return results;
+
+        var children = contentNode.ChildNodes.ToList();
+        string currentGame = "";
+
+        for (int i = 0; i < children.Count; i++)
+        {
+            var node = children[i];
+
+            // Track game headers: <span class='title2'>
+            if (node.Name == "span" && node.GetAttributeValue("class", "") == "title2")
+            {
+                currentGame = HtmlEntity.DeEntitize(node.InnerText?.Trim() ?? "");
+                continue;
+            }
+
+            // Look for midi download links
+            if (node.Name == "a" && node.GetAttributeValue("href", "").Contains("type=midi"))
+            {
+                string href = node.GetAttributeValue("href", "");
+                string downloadUrl = href.StartsWith("http")
+                    ? href
+                    : $"https://ichigos.com{href}";
+
+                // Walk backwards to find the song title text node.
+                // Pattern before midi link: "Song Title<br><i>instr</i> | <a>pdf</a> | <a>midi</a>"
+                // So we skip past: "|", other <a> links, <i>, <br> to reach the song title text.
+                string songTitle = "";
+                for (int j = i - 1; j >= 0 && j >= i - 15; j--)
+                {
+                    var prev = children[j];
+                    // Skip whitespace-only text nodes, "|" text, <br>, <a>, <i> tags
+                    string prevText = prev.InnerText?.Trim() ?? "";
+                    if (prev.Name == "br" || prev.Name == "i" || prev.Name == "a"
+                        || prevText == "|" || string.IsNullOrWhiteSpace(prevText))
+                        continue;
+
+                    // Skip if this is another game header
+                    if (prev.Name == "span" && prev.GetAttributeValue("class", "") == "title2")
+                        break;
+
+                    // This should be the song title text node
+                    songTitle = HtmlEntity.DeEntitize(prevText);
+                    break;
+                }
+
+                // Clean up: remove "(Transcribed by ...)" and "(arranged by ...)"
+                songTitle = Regex.Replace(songTitle, @"\s*\((Transcribed|arranged) by[^)]*\)", "",
+                    RegexOptions.IgnoreCase).Trim();
+
+                string displayTitle = !string.IsNullOrEmpty(currentGame) && !string.IsNullOrEmpty(songTitle)
+                    ? $"{currentGame} - {songTitle}"
+                    : !string.IsNullOrEmpty(songTitle) ? songTitle
+                    : !string.IsNullOrEmpty(currentGame) ? currentGame
+                    : $"Ichigos #{results.Count + 1}";
+
+                results.Add(new SearchResult
+                {
+                    Title = displayTitle,
+                    PageUrl = "https://ichigos.com/sheets",
+                    DownloadUrl = downloadUrl,
+                    Source = "Ichigos",
+                    CanDownload = true
+                });
+
+                if (results.Count >= 15) break;
+            }
+        }
+
+        return results;
+    }
+
+    // ──────────────────────────────────────────────
+    // VGMusic — large videogame MIDI archive, organized by platform
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// VGMusic sections to search (most popular game platforms for ACG content).
+    /// Ordered by relevance — first 4 searched in parallel for speed.
+    /// </summary>
+    private static readonly string[] VGMusicSections =
+    {
+        "console/nintendo/snes",
+        "console/nintendo/nes",
+        "console/sony/ps1",
+        "console/nintendo/n64",
+        "console/nintendo/gba",
+        "console/nintendo/gameboy",
+    };
+
+    private async Task<List<SearchResult>> SearchVGMusicAsync(string query)
+    {
+        var results = new List<SearchResult>();
+        var queryWords = query.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        // Use a longer timeout for VGMusic since section pages are large (1-2 MB)
+        using var vgClient = new HttpClient();
+        vgClient.DefaultRequestHeaders.Add("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        vgClient.Timeout = TimeSpan.FromSeconds(30);
+
+        // Search platform sections in parallel
+        var sectionTasks = VGMusicSections.Select(async section =>
+        {
+            try
+            {
+                string sectionUrl = $"https://www.vgmusic.com/music/{section}/";
+                var html = await vgClient.GetStringAsync(sectionUrl);
+                var sectionResults = SearchVGMusicHtml(html, sectionUrl, queryWords);
+                return sectionResults;
+            }
+            catch (Exception)
+            {
+                return new List<SearchResult>();
+            }
+        }).ToArray();
+
+        var sectionResults = await Task.WhenAll(sectionTasks);
+        foreach (var r in sectionResults)
+            results.AddRange(r);
+
+        // Deduplicate by download URL and limit results
+        return results
+            .GroupBy(r => r.DownloadUrl)
+            .Select(g => g.First())
+            .Take(10)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Search a VGMusic section HTML page for songs matching query words.
+    /// Structure: game titles in &lt;td class="header"&gt;, MIDI links in &lt;td&gt;&lt;a href="file.mid"&gt;
+    /// </summary>
+    private static List<SearchResult> SearchVGMusicHtml(string html, string sectionUrl, string[] queryWords)
+    {
+        var results = new List<SearchResult>();
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        // Find all game header cells and MIDI links
+        var rows = doc.DocumentNode.SelectNodes("//tr");
+        if (rows == null) return results;
+
+        string currentGame = "";
+
+        foreach (var row in rows)
+        {
+            // Check for game header
+            var headerCell = row.SelectSingleNode(".//td[@class='header']");
+            if (headerCell != null)
+            {
+                currentGame = HtmlEntity.DeEntitize(headerCell.InnerText?.Trim() ?? "");
+                continue;
+            }
+
+            // Check for MIDI link
+            var midiLink = row.SelectSingleNode(".//td/a[contains(@href, '.mid')]");
+            if (midiLink == null) continue;
+
+            string href = midiLink.GetAttributeValue("href", "");
+            string songTitle = HtmlEntity.DeEntitize(midiLink.InnerText?.Trim() ?? "");
+            if (string.IsNullOrEmpty(href) || string.IsNullOrEmpty(songTitle)) continue;
+
+            // Match query words against game name + song title
+            string searchText = $"{currentGame} {songTitle}".ToLowerInvariant();
+            bool matches = queryWords.All(w => searchText.Contains(w));
+            if (!matches) continue;
+
+            string displayTitle = !string.IsNullOrEmpty(currentGame)
+                ? $"{currentGame} - {songTitle}"
+                : songTitle;
+
+            string downloadUrl = href.StartsWith("http")
+                ? href
+                : $"{sectionUrl}{href}";
+
+            results.Add(new SearchResult
+            {
+                Title = displayTitle,
+                PageUrl = sectionUrl,
+                DownloadUrl = downloadUrl,
+                Source = "VGMusic",
+                CanDownload = true
+            });
+        }
+
+        return results;
     }
 
     public class SearchResult

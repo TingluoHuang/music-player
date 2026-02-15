@@ -9,8 +9,8 @@ Convert any song into keyboard sequences and auto-play them in the Where Winds M
 3. Convert and play:
 
 ```bash
-musicplayer convert "twinkle twinkle little star"
-musicplayer play twinkle --delay 5
+./MusicPlayer.exe convert "twinkle twinkle little star"
+./MusicPlayer.exe play twinkle --delay 5
 ```
 
 ## How It Works
@@ -24,7 +24,7 @@ Low:   Z=C4  X=D4  C=E4  V=F4  B=G4  N=A4  M=B4
 ```
 
 This tool:
-1. **Searches** for MIDI files online ([FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [MidiShow](https://www.midishow.com))
+1. **Searches** for MIDI files online ([FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [Ichigo's](https://ichigos.com), [VGMusic](https://www.vgmusic.com), [MidiShow](https://www.midishow.com))
 2. **Validates** downloads automatically — only shows files that are confirmed valid
 3. **Converts** MIDI notes into the 21-key layout (pitch remapping, quantization, chord simplification)
 4. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`
@@ -35,10 +35,10 @@ This tool:
 
 ```bash
 # Search online, download, and convert in one step
-musicplayer convert "twinkle twinkle little star"
+./MusicPlayer.exe convert "twinkle twinkle little star"
 
 # Or convert a local MIDI file
-musicplayer convert mysong.mid
+./MusicPlayer.exe convert mysong.mid
 ```
 
 If the MIDI has multiple tracks, you'll be prompted to pick one.
@@ -47,16 +47,16 @@ If the MIDI has multiple tracks, you'll be prompted to pick one.
 
 ```bash
 # Play by song name — searches songs/ directory automatically
-musicplayer play twinkle --delay 5
+./MusicPlayer.exe play twinkle --delay 5
 
 # List all available songs
-musicplayer play
+./MusicPlayer.exe play
 
 # Preview without sending keystrokes
-musicplayer play twinkle --dry-run
+./MusicPlayer.exe play twinkle --dry-run
 
 # Play at half speed
-musicplayer play twinkle --speed 0.5
+./MusicPlayer.exe play twinkle --speed 0.5
 ```
 
 The `play` command supports smart song lookup:
@@ -68,18 +68,22 @@ The `play` command supports smart song lookup:
 
 ```bash
 # Search by song name
-musicplayer search "twinkle twinkle little star"
+./MusicPlayer.exe search "twinkle twinkle little star"
+
+# Anime & game songs — Ichigo's and VGMusic specialize in ACG content
+./MusicPlayer.exe search "naruto"
+./MusicPlayer.exe search "zelda"
 
 # Chinese songs — MidiShow has the largest Chinese catalog
-musicplayer search "月亮代表我的心"
+./MusicPlayer.exe search "月亮代表我的心"
 ```
 
-Results from [FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), and [Midis101](https://midis101.com) are downloaded and validated automatically. Results from [MidiShow](https://www.midishow.com) open in your browser (login required to download).
+Results from [FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [Ichigo's](https://ichigos.com) (anime/game piano), and [VGMusic](https://www.vgmusic.com) (videogame music) are downloaded and validated automatically. Results from [MidiShow](https://www.midishow.com) open in your browser (login required to download).
 
 ### View Key Mapping
 
 ```bash
-musicplayer mapping
+./MusicPlayer.exe mapping
 ```
 
 ### All Options
@@ -110,7 +114,7 @@ Test options:
 
 1. Make sure the game window is focused before the countdown ends
 2. **Run as Administrator** — most games run elevated, and Windows blocks simulated input from a non-admin process (UIPI). Right-click the exe or open your terminal as Administrator
-3. Use `musicplayer test Z --delay 5` to test a single key press
+3. Use `./MusicPlayer.exe test Z --delay 5` to test a single key press
 4. If the test key works but songs sound wrong, try `--dry-run` to preview
 
 **Corrupt MIDI files:** The tool pre-downloads and validates all MIDI files before showing results. If you still see issues with locally provided files, try a different source.
@@ -174,7 +178,7 @@ music-player/
 ├── src/MusicPlayer/
 │   ├── Program.cs               # CLI entry point
 │   ├── NoteMapping.cs           # 21-key ↔ note mapping
-│   ├── MidiSearcher.cs          # MIDI search & download (FreeMidi + MidiWorld + Midis101 + MidiShow)
+│   ├── MidiSearcher.cs          # MIDI search & download (FreeMidi + MidiWorld + Midis101 + Ichigos + VGMusic + MidiShow)
 │   ├── MidiConverter.cs         # MIDI → JSON conversion pipeline
 │   ├── KeyboardPlayer.cs        # Auto-player (Win32 SendInput)
 │   └── Models/

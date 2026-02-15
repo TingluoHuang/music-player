@@ -39,7 +39,7 @@ static async Task<int> HandleSearchAsync(string[] args)
     if (string.IsNullOrEmpty(query))
     {
         Console.Error.WriteLine("Error: Provide a song name to search for.");
-        Console.Error.WriteLine("  Usage: musicplayer search \"song name\"");
+        Console.Error.WriteLine("  Usage: ./MusicPlayer.exe search \"song name\"");
         return 1;
     }
 
@@ -49,7 +49,7 @@ static async Task<int> HandleSearchAsync(string[] args)
 
     if (file != null)
     {
-        Console.WriteLine($"\nTo convert: musicplayer convert \"{file}\"");
+        Console.WriteLine($"\nTo convert: ./MusicPlayer.exe convert \"{file}\"");
     }
 
     return 0;
@@ -103,8 +103,8 @@ static async Task<int> HandleConvertAsync(string[] args)
     if (string.IsNullOrEmpty(file))
     {
         Console.Error.WriteLine("Error: Provide a MIDI file or song name.");
-        Console.Error.WriteLine("  Usage: musicplayer convert <file.mid>");
-        Console.Error.WriteLine("  Usage: musicplayer convert \"song name\"");
+        Console.Error.WriteLine("  Usage: ./MusicPlayer.exe convert <file.mid>");
+        Console.Error.WriteLine("  Usage: ./MusicPlayer.exe convert \"song name\"");
         Console.Error.WriteLine("  (or: dotnet run --project src/MusicPlayer -- convert ...)");
         return 1;
     }
@@ -159,8 +159,8 @@ static async Task<int> ConvertFile(string file, double quantize)
     Console.WriteLine($"  Duration: {song.Duration:F1}s");
     Console.WriteLine($"  BPM: {song.Bpm}");
     Console.WriteLine($"  Saved to: {output}");
-    Console.WriteLine($"\nTo play:     musicplayer play \"{output}\"");
-    Console.WriteLine($"To preview:  musicplayer play \"{output}\" --dry-run");
+    Console.WriteLine($"\nTo play:     ./MusicPlayer.exe play \"{output}\"");
+    Console.WriteLine($"To preview:  ./MusicPlayer.exe play \"{output}\" --dry-run");
     return 0;
 }
 
@@ -205,12 +205,12 @@ static async Task<int> HandlePlayAsync(string[] args)
                 Console.Error.WriteLine("Available songs:");
                 foreach (var f in songFiles)
                     Console.Error.WriteLine($"  {Path.GetFileNameWithoutExtension(f)}");
-                Console.Error.WriteLine($"\nUsage: musicplayer play <name>");
+                Console.Error.WriteLine($"\nUsage: ./MusicPlayer.exe play <name>");
                 return 1;
             }
         }
         Console.Error.WriteLine("Error: Provide a song JSON file path.");
-        Console.Error.WriteLine("  Usage: musicplayer play song.json");
+        Console.Error.WriteLine("  Usage: ./MusicPlayer.exe play song.json");
         return 1;
     }
 
@@ -263,7 +263,7 @@ static async Task<int> HandlePlayAsync(string[] args)
         else
         {
             Console.Error.WriteLine($"Error: File not found: {input}");
-            Console.Error.WriteLine("  Tip: Convert a song first with: musicplayer convert \"song name\"");
+            Console.Error.WriteLine("  Tip: Convert a song first with: ./MusicPlayer.exe convert \"song name\"");
             return 1;
         }
     }
@@ -369,11 +369,11 @@ static int PrintUsage(string? error = null)
           --delay <seconds>       Countdown before sending (default: 3)
 
         Examples:
-          musicplayer convert "twinkle twinkle little star"  (search → download → convert)
-          musicplayer convert downloaded.mid                  (convert local file)
-          musicplayer play twinkle --dry-run                  (preview)
-          musicplayer play twinkle --delay 5                  (play in game)
-          musicplayer test Z --delay 5                        (test single key)
+          ./MusicPlayer.exe convert "twinkle twinkle little star"  (search → download → convert)
+          ./MusicPlayer.exe convert downloaded.mid                  (convert local file)
+          ./MusicPlayer.exe play twinkle --dry-run                  (preview)
+          ./MusicPlayer.exe play twinkle --delay 5                  (play in game)
+          ./MusicPlayer.exe test Z --delay 5                        (test single key)
         """);
 
     return error != null ? 1 : 0;

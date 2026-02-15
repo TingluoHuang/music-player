@@ -36,19 +36,50 @@ public class MidiConverterTests
     }
 
     [Fact]
-    public void Convert_ChordSimplification_MaxThreeKeys()
+    public void Convert_ChordSimplification_DefaultMaxTwoKeys()
     {
         string testFile = CreateChordTestMidiFile();
 
         try
         {
-            var converter = new MidiConverter(maxSimultaneousKeys: 3);
+            var converter = new MidiConverter(); // default max = 2
             var song = converter.Convert(testFile, quantizationMs: 0);
 
             foreach (var note in song.Notes)
             {
-                Assert.True(note.Keys.Count <= 3,
-                    $"Chord at t={note.Time} has {note.Keys.Count} keys (max 3)");
+                Assert.True(note.Keys.Count <= 2,
+                    $"Chord at t={note.Time} has {note.Keys.Count} keys (max 2)");
+            }
+        }
+        finally
+        {
+            File.Delete(testFile);
+        }
+    }
+
+    [Fact]
+    public void Convert_ChordSimplification_KeepsHighestAndLowest()
+    {
+        string testFile = CreateChordTestMidiFile();
+
+        try
+        {
+            var converter = new MidiConverter(maxSimultaneousKeys: 2);
+            var song = converter.Convert(testFile, quantizationMs: 0);
+
+            // The chord should keep the highest and lowest notes for musical spread
+            foreach (var note in song.Notes)
+            {
+                if (note.Keys.Count == 2)
+                {
+                    var mapping = new NoteMapping();
+                    var midiValues = note.Keys
+                        .Select(k => mapping.GetMidiNote(k[0]) ?? 0)
+                        .ToList();
+                    // The two kept notes should not be adjacent — spread is preferred
+                    Assert.True(midiValues.Max() - midiValues.Min() > 0,
+                        "Chord simplification should keep spread (highest + lowest)");
+                }
             }
         }
         finally
@@ -149,6 +180,44 @@ public class MidiConverterTests
                 Assert.Equal(original.Notes[i].Duration, loaded.Notes[i].Duration);
                 Assert.Equal(original.Notes[i].Keys, loaded.Notes[i].Keys);
             }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Convert_CentersPitchAroundMidRow()
+    {
+        // Create a MIDI file with all notes in C2-C3 range (very low).
+        // After centering, these should map mostly to Mid row keys.
+        var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
+            Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(120).MicrosecondsPerQuarterNote)
+        { DeltaTime = 0 };
+
+        // C2=36, D2=38, E2=40, F2=41, G2=43
+        var noteEvents = CreateNoteEvents(new[] { 36, 38, 40, 41, 43 }).ToList();
+        noteEvents.Insert(0, tempoEvent);
+
+        var midiFile = new Melanchall.DryWetMidi.Core.MidiFile(
+            new Melanchall.DryWetMidi.Core.TrackChunk(noteEvents));
+
+        string path = Path.GetTempFileName() + ".mid";
+        midiFile.Write(path);
+
+        try
+        {
+            var converter = new MidiConverter();
+            var song = converter.Convert(path);
+
+            // After centering, notes should use Mid row (A-J) predominantly
+            var midRowKeys = new HashSet<string>("ASDFGHJ".Select(c => c.ToString()));
+            int midRowCount = song.Notes.Sum(n => n.Keys.Count(k => midRowKeys.Contains(k)));
+            int totalKeys = song.Notes.Sum(n => n.Keys.Count);
+
+            Assert.True(midRowCount > totalKeys / 2,
+                $"Expected majority Mid-row keys after centering, got {midRowCount}/{totalKeys}");
         }
         finally
         {

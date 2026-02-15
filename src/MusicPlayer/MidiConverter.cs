@@ -13,7 +13,7 @@ public class MidiConverter
     private readonly NoteMapping _mapping;
     private readonly int _maxSimultaneousKeys;
 
-    public MidiConverter(NoteMapping? mapping = null, int maxSimultaneousKeys = 3)
+    public MidiConverter(NoteMapping? mapping = null, int maxSimultaneousKeys = 2)
     {
         _mapping = mapping ?? new NoteMapping();
         _maxSimultaneousKeys = maxSimultaneousKeys;
@@ -122,27 +122,25 @@ public class MidiConverter
             return chunks[trackIndex].GetNotes().ToList();
         }
 
-        // Auto-detect: try melody from all notes, or pick the track with most notes
-        // in the mid-range (C4–C6)
+        // Auto-detect melody track using the same scoring as PromptForTrack
         if (chunks.Count == 1)
         {
             return chunks[0].GetNotes().ToList();
         }
 
-        // Score each track: prefer tracks with notes in C4–C6 range
         int bestTrack = 0;
-        int bestScore = 0;
+        int bestScore = int.MinValue;
 
         for (int i = 0; i < chunks.Count; i++)
         {
-            var notes = chunks[i].GetNotes().ToList();
-            if (notes.Count == 0) continue;
+            var chunk = chunks[i];
+            if (chunk.GetNotes().Count == 0) continue;
 
-            int midRangeCount = notes.Count(n =>
-                n.NoteNumber >= 60 && n.NoteNumber <= 84); // C4–C6
+            var trackName = chunk.Events
+                .OfType<SequenceTrackNameEvent>()
+                .FirstOrDefault()?.Text ?? $"Track {i}";
 
-            // Score = mid-range notes (prefer melody range)
-            int score = midRangeCount * 2 + notes.Count;
+            int score = ScoreTrackAsMelody(chunk, trackName);
 
             if (score > bestScore)
             {
@@ -157,13 +155,76 @@ public class MidiConverter
     }
 
     /// <summary>
+    /// Score a track to estimate how likely it is the main melody.
+    /// Higher score = more likely to be the melody track.
+    /// </summary>
+    private static int ScoreTrackAsMelody(Melanchall.DryWetMidi.Core.TrackChunk chunk, string trackName)
+    {
+        var notes = chunk.GetNotes().ToList();
+        if (notes.Count == 0) return 0;
+
+        int score = 0;
+
+        // 1. Track name heuristic — melody/lead/vocal names are strong signals
+        var lowerName = trackName.ToLowerInvariant();
+        string[] melodyKeywords = { "melody", "lead", "vocal", "voice", "主旋律", "歌", "唱" };
+        string[] penaltyKeywords = { "drum", "percussion", "bass", "鼓", "贝斯" };
+        if (melodyKeywords.Any(k => lowerName.Contains(k)))
+            score += 500;
+        if (penaltyKeywords.Any(k => lowerName.Contains(k)))
+            score -= 500;
+
+        // 2. Skip percussion channel (channel 10 / index 9)
+        var channels = notes.Select(n => (int)n.Channel).Distinct().ToList();
+        if (channels.Count == 1 && channels[0] == 9)
+            return -1000; // Percussion track
+
+        // 3. Mid-range concentration — melody lives in C4–C6 (MIDI 60–95)
+        int midRangeCount = notes.Count(n => n.NoteNumber >= 60 && n.NoteNumber <= 95);
+        double midRangeRatio = (double)midRangeCount / notes.Count;
+        score += (int)(midRangeRatio * 200);
+
+        // 4. Monophony score — melody tracks are mostly single notes.
+        //    Count how often multiple notes overlap in time.
+        int monophonicNotes = 0;
+        var sortedNotes = notes.OrderBy(n => n.Time).ToList();
+        for (int i = 0; i < sortedNotes.Count; i++)
+        {
+            bool overlaps = false;
+            if (i > 0 && sortedNotes[i].Time < sortedNotes[i - 1].Time + sortedNotes[i - 1].Length)
+                overlaps = true;
+            if (!overlaps)
+                monophonicNotes++;
+        }
+        double monoRatio = (double)monophonicNotes / notes.Count;
+        score += (int)(monoRatio * 150);
+
+        // 5. Note count — too few notes (< 10) is likely not a melody.
+        //    Moderate density is ideal; very dense tracks may be accompaniment.
+        if (notes.Count < 10)
+            score -= 200;
+        else if (notes.Count >= 20 && notes.Count <= 500)
+            score += 100;
+        else if (notes.Count > 500)
+            score += 50; // Still decent, but could be accompaniment
+
+        // 6. Pitch variety — melodies typically use a moderate range of pitches
+        int distinctPitches = notes.Select(n => (int)n.NoteNumber).Distinct().Count();
+        if (distinctPitches >= 5 && distinctPitches <= 40)
+            score += 80;
+
+        return score;
+    }
+
+    /// <summary>
     /// Prompts the user to pick a track if multiple tracks contain notes.
+    /// Shows a recommended track based on melody scoring.
     /// Returns track index (0-based).
     /// </summary>
     private int PromptForTrack(MidiFile midiFile)
     {
         var chunks = midiFile.GetTrackChunks().ToList();
-        var tracksWithNotes = new List<TrackInfo>();
+        var tracksWithNotes = new List<(TrackInfo Info, int Score)>();
 
         for (int i = 0; i < chunks.Count; i++)
         {
@@ -175,36 +236,43 @@ public class MidiConverter
                 .OfType<SequenceTrackNameEvent>()
                 .FirstOrDefault()?.Text ?? $"Track {i}";
 
-            tracksWithNotes.Add(new TrackInfo
+            int melodyScore = ScoreTrackAsMelody(chunk, trackName);
+
+            tracksWithNotes.Add((new TrackInfo
             {
                 Index = i,
                 Name = trackName,
                 NoteCount = noteCount
-            });
+            }, melodyScore));
         }
 
         // 0 or 1 tracks with notes — no need to prompt
         if (tracksWithNotes.Count <= 1)
-            return tracksWithNotes.FirstOrDefault()?.Index ?? 0;
+            return tracksWithNotes.FirstOrDefault().Info?.Index ?? 0;
 
-        // Show tracks and prompt for selection
-        Console.WriteLine($"\nFound {tracksWithNotes.Count} tracks with notes:");
-        for (int i = 0; i < tracksWithNotes.Count; i++)
+        // Sort by score descending — best melody candidate first
+        var ranked = tracksWithNotes.OrderByDescending(t => t.Score).ToList();
+        int recommendedIdx = 0; // Index into ranked list
+
+        // Show tracks with recommendation
+        Console.WriteLine($"\nFound {ranked.Count} tracks with notes:");
+        for (int i = 0; i < ranked.Count; i++)
         {
-            Console.WriteLine($"  [{i + 1}] {tracksWithNotes[i].Name} — {tracksWithNotes[i].NoteCount} notes");
+            string marker = i == recommendedIdx ? " ★ recommended" : "";
+            Console.WriteLine($"  [{i + 1}] {ranked[i].Info.Name} — {ranked[i].Info.NoteCount} notes{marker}");
         }
 
-        Console.Write($"\nPick a track (1-{tracksWithNotes.Count}) [1]: ");
+        Console.Write($"\nPick a track (1-{ranked.Count}) [1]: ");
         string? input = Console.ReadLine()?.Trim();
 
         int selectedIndex = 0;
         if (!string.IsNullOrEmpty(input) && int.TryParse(input, out int choice)
-            && choice >= 1 && choice <= tracksWithNotes.Count)
+            && choice >= 1 && choice <= ranked.Count)
         {
             selectedIndex = choice - 1;
         }
 
-        var selected = tracksWithNotes[selectedIndex];
+        var selected = ranked[selectedIndex].Info;
         Console.WriteLine($"Using track: {selected.Name} ({selected.NoteCount} notes)");
         return selected.Index;
     }
@@ -238,9 +306,39 @@ public class MidiConverter
 
     private List<RawNoteEvent> RemapPitches(List<RawNoteEvent> events)
     {
+        if (events.Count == 0)
+            return new List<RawNoteEvent>();
+
+        // Calculate optimal octave shift to center notes around the Mid row.
+        // Mid row center ≈ MIDI 77.5 (midpoint of C5=72 .. B5=83).
+        // We shift all notes by whole octaves (multiples of 12) so the median
+        // pitch lands closest to this center, producing a more natural spread.
+        int midRangeCenter = 78; // ~F5, center of our 21-key range
+        var midiNotes = events.Select(e => e.MidiNote).OrderBy(n => n).ToList();
+        int medianPitch = midiNotes[midiNotes.Count / 2];
+
+        // Find the octave shift (in semitones) that puts the median closest to center
+        int bestShift = 0;
+        int bestDistance = Math.Abs(medianPitch - midRangeCenter);
+        for (int shift = -60; shift <= 60; shift += 12)
+        {
+            int distance = Math.Abs((medianPitch + shift) - midRangeCenter);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestShift = shift;
+            }
+        }
+
+        if (bestShift != 0)
+        {
+            Console.WriteLine($"Shifting notes by {bestShift / 12:+#;-#;0} octave(s) to center around Mid row.");
+        }
+
         return events.Select(e =>
         {
-            int remapped = _mapping.FindNearestNote(e.MidiNote);
+            int shifted = e.MidiNote + bestShift;
+            int remapped = _mapping.FindNearestNote(shifted);
             char? key = _mapping.GetKey(remapped);
 
             if (key == null)
@@ -316,18 +414,37 @@ public class MidiConverter
             if (e.Keys.Count <= _maxSimultaneousKeys)
                 return e;
 
-            // Keep only the top N notes (highest pitch = most audible in melody)
+            // Keep the highest note (melody) and lowest note (bass) for
+            // the best musical spread, then fill remaining slots from the top.
             var sortedKeys = e.Keys
                 .Select(k => new { Key = k, Midi = _mapping.GetMidiNote(k[0]) ?? 0 })
                 .OrderByDescending(k => k.Midi)
-                .Take(_maxSimultaneousKeys)
-                .Select(k => k.Key)
                 .ToList();
+
+            var selected = new List<string>();
+
+            // Always keep the highest (melody)
+            selected.Add(sortedKeys.First().Key);
+
+            // If we have room, keep the lowest (bass) for spread
+            if (_maxSimultaneousKeys >= 2 && sortedKeys.Count >= 2
+                && sortedKeys.Last().Key != sortedKeys.First().Key)
+            {
+                selected.Add(sortedKeys.Last().Key);
+            }
+
+            // Fill remaining slots from the top (after the first)
+            foreach (var k in sortedKeys.Skip(1))
+            {
+                if (selected.Count >= _maxSimultaneousKeys) break;
+                if (!selected.Contains(k.Key))
+                    selected.Add(k.Key);
+            }
 
             return new Models.NoteEvent
             {
                 Time = e.Time,
-                Keys = sortedKeys,
+                Keys = selected,
                 Duration = e.Duration
             };
         }).ToList();
