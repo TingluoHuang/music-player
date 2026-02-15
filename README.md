@@ -6,7 +6,8 @@ Convert any song into keyboard sequences and auto-play them in the Where Winds M
 
 1. Download `MusicPlayer.exe` from [Releases](https://github.com/TingluoHuang/music-player/releases) (or [build from source](#building-from-source))
 2. **Right-click → Run as Administrator** (required for the game to receive keystrokes)
-3. Convert and play:
+3. In the game, [switch to the 36-key layout](#game-setup) (required for sharps/flats)
+4. Convert and play:
 
 ```bash
 ./MusicPlayer.exe convert "twinkle twinkle little star"
@@ -15,19 +16,38 @@ Convert any song into keyboard sequences and auto-play them in the Where Winds M
 
 ## How It Works
 
-The game maps 21 keyboard keys to 3 octaves of a diatonic (C major) scale:
+The game maps 36 keyboard keys to 3 full chromatic octaves using modifier keys:
 
 ```
-High:  Q=C6  W=D6  E=E6  R=F6  T=G6  Y=A6  U=B6
-Mid:   A=C5  S=D5  D=E5  F=F5  G=G5  H=A5  J=B5
-Low:   Z=C4  X=D4  C=E4  V=F4  B=G4  N=A4  M=B4
+Natural notes (21 keys):
+  High:  Q=C6  W=D6  E=E6  R=F6  T=G6  Y=A6  U=B6
+  Mid:   A=C5  S=D5  D=E5  F=F5  G=G5  H=A5  J=B5
+  Low:   Z=C4  X=D4  C=E4  V=F4  B=G4  N=A4  M=B4
+
+Sharps — Shift + key (15 keys):
+  High:  ⇧Q=C#6  ⇧W=D#6  ⇧R=F#6  ⇧T=G#6  ⇧Y=A#6
+  Mid:   ⇧A=C#5  ⇧S=D#5  ⇧F=F#5  ⇧G=G#5  ⇧H=A#5
+  Low:   ⇧Z=C#4  ⇧X=D#4  ⇧V=F#4  ⇧B=G#4  ⇧N=A#4
+
+Flats — Ctrl + key (alternative for the same sharps):
+  e.g.  Ctrl+X=Db4  Ctrl+C=Eb4  Ctrl+E=Eb6  etc.
 ```
 
 This tool:
 1. **Searches** for MIDI files online ([FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [Ichigo's](https://ichigos.com), [VGMusic](https://www.vgmusic.com), [MidiShow](https://www.midishow.com))
 2. **Validates** downloads automatically — only shows files that are confirmed valid
-3. **Converts** MIDI notes into the 21-key layout (pitch remapping, quantization, chord simplification)
-4. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`
+3. **Converts** MIDI notes into the 36-key chromatic layout (pitch remapping, quantization, chord simplification) — sharps and flats are preserved instead of being snapped to the nearest natural note
+4. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`, pressing Shift/Ctrl modifiers as needed
+
+## Game Setup
+
+Before playing, you must switch to the **36-key keyboard** in the game:
+
+1. Open the music system and enter **Free Play** mode
+2. Press **F1** to cycle the keyboard layout until you see the **36-key** version (with sharp/flat keys visible)
+3. The 36-key layout adds Shift (sharp) and Ctrl (flat) modifiers — this is required for the tool to play chromatic notes correctly
+
+> **Important:** The game defaults to a 21-key (diatonic only) layout. If you stay on 21 keys, any sharp/flat notes in the song will not play correctly.
 
 ## Usage
 
@@ -130,12 +150,13 @@ Converted songs are saved as JSON in `songs/`:
   "notes": [
     { "time": 0.0, "keys": ["Z"], "duration": 0.5 },
     { "time": 0.5, "keys": ["Z"], "duration": 0.5 },
-    { "time": 1.0, "keys": ["B"], "duration": 0.5 }
+    { "time": 1.0, "keys": ["B"], "duration": 0.5 },
+    { "time": 1.5, "keys": ["Shift+V"], "duration": 0.5 }
   ]
 }
 ```
 
-You can manually edit these files to fix notes or adjust timing.
+Key format: plain letter for natural notes (`"Z"`, `"A"`, `"Q"`), `"Shift+X"` for sharps, `"Ctrl+X"` for flats. You can manually edit these files to fix notes or adjust timing.
 
 ---
 
@@ -177,7 +198,7 @@ music-player/
 ├── MusicPlayer.slnx
 ├── src/MusicPlayer/
 │   ├── Program.cs               # CLI entry point
-│   ├── NoteMapping.cs           # 21-key ↔ note mapping
+│   ├── NoteMapping.cs           # 36-key ↔ note mapping (natural + sharp/flat)
 │   ├── MidiSearcher.cs          # MIDI search & download (FreeMidi + MidiWorld + Midis101 + Ichigos + VGMusic + MidiShow)
 │   ├── MidiConverter.cs         # MIDI → JSON conversion pipeline
 │   ├── KeyboardPlayer.cs        # Auto-player (Win32 SendInput)

@@ -3,15 +3,35 @@ namespace MusicPlayer;
 /// <summary>
 /// Maps MIDI note numbers to keyboard keys for Where Winds Meet.
 /// 
-/// Layout (3 rows × 7 keys = 21 keys = 3 diatonic octaves):
+/// Layout (3 rows × 7 natural keys + 5 chromatic keys = 36 keys = 3 chromatic octaves):
 ///   Row 1 (High):  Q  W  E  R  T  Y  U   → C6 D6 E6 F6 G6 A6 B6
 ///   Row 2 (Mid):   A  S  D  F  G  H  J   → C5 D5 E5 F5 G5 A5 B5
 ///   Row 3 (Low):   Z  X  C  V  B  N  M   → C4 D4 E4 F4 G4 A4 B4
+///
+///   Shift + key → sharp (#): raises the note by 1 semitone
+///     e.g. Shift+Q = C#6, Shift+W = D#6, Shift+R = F#6, Shift+T = G#6, Shift+Y = A#6
+///   Ctrl  + key → flat  (b): lowers the note by 1 semitone
+///     e.g. Ctrl+E = Eb6,  Ctrl+G = Gb5,  Ctrl+H = Ab5,  Ctrl+J = Bb5
 /// </summary>
 public class NoteMapping
 {
     // C-major diatonic scale intervals (semitones from root)
     private static readonly int[] DiatonicIntervals = { 0, 2, 4, 5, 7, 9, 11 };
+
+    // Chromatic (sharp) intervals and the index of the diatonic key to apply Shift to.
+    // semitone 1 (C#) → Shift on diatonic index 0 (C key)
+    // semitone 3 (D#) → Shift on diatonic index 1 (D key)
+    // semitone 6 (F#) → Shift on diatonic index 3 (F key)
+    // semitone 8 (G#) → Shift on diatonic index 4 (G key)
+    // semitone 10(A#) → Shift on diatonic index 5 (A key)
+    private static readonly Dictionary<int, int> SharpSemitoneToKeyIndex = new()
+    {
+        { 1, 0 },   // C#
+        { 3, 1 },   // D#
+        { 6, 3 },   // F#
+        { 8, 4 },   // G#
+        { 10, 5 },  // A#
+    };
 
     // Keyboard layout: row 3 (low), row 2 (mid), row 1 (high)
     private static readonly char[][] KeyboardRows =
@@ -27,19 +47,19 @@ public class NoteMapping
     public int BaseOctave { get; }
 
     /// <summary>
-    /// All 21 valid MIDI note numbers in ascending order.
+    /// All 36 valid MIDI note numbers in ascending order (12 per octave × 3 octaves).
     /// </summary>
     public IReadOnlyList<int> ValidMidiNotes { get; }
 
     /// <summary>
-    /// Map from MIDI note number → keyboard key character.
+    /// Map from MIDI note number → keyboard key string (e.g. "Q", "Shift+Q", "Ctrl+E").
     /// </summary>
-    private readonly Dictionary<int, char> _midiToKey = new();
+    private readonly Dictionary<int, string> _midiToKey = new();
 
     /// <summary>
-    /// Map from keyboard key character → MIDI note number.
+    /// Map from keyboard key string → MIDI note number.
     /// </summary>
-    private readonly Dictionary<char, int> _keyToMidi = new();
+    private readonly Dictionary<string, int> _keyToMidi = new(StringComparer.OrdinalIgnoreCase);
 
     public NoteMapping(int baseOctave = 4)
     {
@@ -51,88 +71,107 @@ public class NoteMapping
             int octave = baseOctave + row;
             int octaveBase = (octave + 1) * 12; // MIDI: C4 = 60 = (4+1)*12
 
+            // Map the 7 diatonic (natural) notes
             for (int note = 0; note < 7; note++)
             {
                 int midiNote = octaveBase + DiatonicIntervals[note];
-                char key = KeyboardRows[row][note];
+                string key = KeyboardRows[row][note].ToString();
 
                 _midiToKey[midiNote] = key;
                 _keyToMidi[key] = midiNote;
                 validNotes.Add(midiNote);
             }
+
+            // Map the 5 chromatic (sharp/flat) notes using Shift modifier
+            foreach (var (semitone, keyIndex) in SharpSemitoneToKeyIndex)
+            {
+                int midiNote = octaveBase + semitone;
+                char baseKey = KeyboardRows[row][keyIndex];
+                string sharpKey = $"Shift+{baseKey}";
+
+                _midiToKey[midiNote] = sharpKey;
+                _keyToMidi[sharpKey] = midiNote;
+                validNotes.Add(midiNote);
+
+                // Also register the Ctrl+flat alternative so it resolves during playback.
+                // e.g. C# = Shift+Z = Ctrl+X (Db), D# = Shift+X = Ctrl+C (Eb), etc.
+                int flatKeyIndex = keyIndex + 1; // The diatonic note one step above
+                // For A# (keyIndex=5), flat is Ctrl on B key (keyIndex=6)
+                if (flatKeyIndex < 7)
+                {
+                    char flatBase = KeyboardRows[row][flatKeyIndex];
+                    string flatKey = $"Ctrl+{flatBase}";
+                    // Don't overwrite _midiToKey — Shift is the primary representation
+                    if (!_keyToMidi.ContainsKey(flatKey))
+                        _keyToMidi[flatKey] = midiNote;
+                }
+            }
         }
 
+        validNotes.Sort();
         ValidMidiNotes = validNotes.AsReadOnly();
     }
 
     /// <summary>
-    /// Get the keyboard key for a MIDI note number.
-    /// Returns null if the note is not in our 21-key range.
+    /// Get the keyboard key string for a MIDI note number.
+    /// Returns a plain key like "Q" for natural notes, or "Shift+Q" for sharps.
+    /// Returns null if the note is not in our 36-key range.
     /// </summary>
-    public char? GetKey(int midiNote)
+    public string? GetKey(int midiNote)
     {
         return _midiToKey.TryGetValue(midiNote, out var key) ? key : null;
     }
 
     /// <summary>
-    /// Get the MIDI note number for a keyboard key.
+    /// Get the MIDI note number for a keyboard key string.
+    /// Accepts plain keys ("Q"), sharps ("Shift+Q"), or flats ("Ctrl+E").
     /// </summary>
-    public int? GetMidiNote(char key)
+    public int? GetMidiNote(string key)
     {
-        char upper = char.ToUpper(key);
-        return _keyToMidi.TryGetValue(upper, out var note) ? note : null;
+        return _keyToMidi.TryGetValue(key, out var note) ? note : null;
     }
 
     /// <summary>
+    /// Check if the given MIDI note falls within our 36-key range
+    /// (i.e. can be played without any snapping).
+    /// </summary>
+    public bool IsExactMatch(int midiNote) => _midiToKey.ContainsKey(midiNote);
+
+    /// <summary>
     /// Find the nearest valid MIDI note for any given MIDI pitch.
-    /// Uses octave shifting first (keep same scale degree), 
-    /// then snaps to nearest diatonic note.
+    /// With 36-key (full chromatic) support, this only needs to handle
+    /// notes outside the 3-octave range by octave-shifting, then clamping.
     /// </summary>
     public int FindNearestNote(int midiNote)
     {
-        // First, try to find the same scale degree in a valid octave
+        // If it's already a valid note, return as-is
+        if (_midiToKey.ContainsKey(midiNote))
+            return midiNote;
+
+        // Try to find the same pitch class in a valid octave (closest octave first)
         int noteInOctave = midiNote % 12;
-        int lowestValid = ValidMidiNotes[0];
-        int highestValid = ValidMidiNotes[^1];
 
-        // Check if this pitch class exists in the diatonic scale
-        if (DiatonicIntervals.Contains(noteInOctave))
+        int bestCandidate = -1;
+        int bestDistance = int.MaxValue;
+        for (int row = 0; row < 3; row++)
         {
-            // Find the octave-shifted version within our range
-            for (int row = 0; row < 3; row++)
+            int octave = BaseOctave + row;
+            int candidate = (octave + 1) * 12 + noteInOctave;
+            if (_midiToKey.ContainsKey(candidate))
             {
-                int octave = BaseOctave + row;
-                int candidate = (octave + 1) * 12 + noteInOctave;
-                if (_midiToKey.ContainsKey(candidate))
+                int distance = Math.Abs(candidate - midiNote);
+                if (distance < bestDistance)
                 {
-                    // Prefer the octave closest to the original
-                    // For now, just pick the first valid one, then refine
+                    bestDistance = distance;
+                    bestCandidate = candidate;
                 }
             }
-
-            // Find the closest octave
-            int bestCandidate = -1;
-            int bestDistance = int.MaxValue;
-            for (int row = 0; row < 3; row++)
-            {
-                int octave = BaseOctave + row;
-                int candidate = (octave + 1) * 12 + noteInOctave;
-                if (_midiToKey.ContainsKey(candidate))
-                {
-                    int distance = Math.Abs(candidate - midiNote);
-                    if (distance < bestDistance)
-                    {
-                        bestDistance = distance;
-                        bestCandidate = candidate;
-                    }
-                }
-            }
-
-            if (bestCandidate >= 0)
-                return bestCandidate;
         }
 
-        // Note is not in diatonic scale (e.g., a sharp/flat) — snap to nearest valid note
+        if (bestCandidate >= 0)
+            return bestCandidate;
+
+        // Fallback: snap to nearest valid note by absolute distance
         int nearest = ValidMidiNotes[0];
         int minDist = Math.Abs(midiNote - nearest);
 
@@ -150,28 +189,42 @@ public class NoteMapping
     }
 
     /// <summary>
-    /// Get a display string showing the full mapping.
+    /// Get a display string showing the full mapping (natural + chromatic).
     /// </summary>
     public string GetMappingDisplay()
     {
         var lines = new List<string>
         {
-            "Key → Note Mapping:",
+            "Key → Note Mapping (36 keys):",
             ""
         };
 
         string[] rowLabels = { "Low", "Mid", "High" };
         for (int row = 2; row >= 0; row--)
         {
-            var parts = new List<string>();
+            // Natural notes
+            var natural = new List<string>();
             for (int note = 0; note < 7; note++)
             {
                 char key = KeyboardRows[row][note];
-                int midi = _keyToMidi[key];
+                string keyStr = key.ToString();
+                int midi = _keyToMidi[keyStr];
                 string noteName = MidiNoteToName(midi);
-                parts.Add($"{key}={noteName}");
+                natural.Add($"{key}={noteName}");
             }
-            lines.Add($"  {rowLabels[row],-4}: {string.Join("  ", parts)}");
+            lines.Add($"  {rowLabels[row],-4}: {string.Join("  ", natural)}");
+
+            // Sharp notes (Shift+key)
+            var sharps = new List<string>();
+            foreach (var (semitone, keyIndex) in SharpSemitoneToKeyIndex)
+            {
+                int octave = BaseOctave + row;
+                int midiNote = (octave + 1) * 12 + semitone;
+                char baseKey = KeyboardRows[row][keyIndex];
+                string noteName = MidiNoteToName(midiNote);
+                sharps.Add($"⇧{baseKey}={noteName}");
+            }
+            lines.Add($"        {string.Join("  ", sharps)}");
         }
 
         return string.Join(Environment.NewLine, lines);

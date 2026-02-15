@@ -19,13 +19,20 @@ public class MidiConverterTests
             Assert.True(song.Notes.Count > 0, "Song should have notes");
             Assert.True(song.Bpm > 0, "Song should have a BPM");
 
-            // All keys should be valid game keys
-            var validKeys = new HashSet<string>("QWERTYUASDFGHJZXCVBNM".Select(c => c.ToString()));
+            // All keys should be valid game keys (natural or with Shift/Ctrl modifiers)
+            var validNaturalKeys = new HashSet<string>("QWERTYUASDFGHJZXCVBNM".Select(c => c.ToString()));
             foreach (var note in song.Notes)
             {
                 foreach (var key in note.Keys)
                 {
-                    Assert.Contains(key, validKeys);
+                    // Key is either a plain letter or "Shift+X" / "Ctrl+X"
+                    string baseKey;
+                    if (key.StartsWith("Shift+") || key.StartsWith("Ctrl+"))
+                        baseKey = key[(key.IndexOf('+') + 1)..];
+                    else
+                        baseKey = key;
+
+                    Assert.Contains(baseKey, validNaturalKeys);
                 }
             }
         }
@@ -74,7 +81,7 @@ public class MidiConverterTests
                 {
                     var mapping = new NoteMapping();
                     var midiValues = note.Keys
-                        .Select(k => mapping.GetMidiNote(k[0]) ?? 0)
+                        .Select(k => mapping.GetMidiNote(k) ?? 0)
                         .ToList();
                     // The two kept notes should not be adjacent — spread is preferred
                     Assert.True(midiValues.Max() - midiValues.Min() > 0,

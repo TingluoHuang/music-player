@@ -23,6 +23,32 @@ public class KeyboardPlayer
         ['B'] = 0x42, ['N'] = 0x4E, ['M'] = 0x4D,
     };
 
+    // Modifier virtual key codes
+    private const ushort VK_SHIFT = 0x10;
+    private const ushort VK_CONTROL = 0x11;
+
+    /// <summary>
+    /// Parse a key string like "Q", "Shift+Q", or "Ctrl+E" into
+    /// (modifier VK or 0, base key char).
+    /// </summary>
+    private static (ushort Modifier, char Key) ParseKeyString(string keyStr)
+    {
+        if (keyStr.StartsWith("Shift+", StringComparison.OrdinalIgnoreCase) && keyStr.Length > 6)
+            return (VK_SHIFT, char.ToUpper(keyStr[6]));
+        if (keyStr.StartsWith("Ctrl+", StringComparison.OrdinalIgnoreCase) && keyStr.Length > 5)
+            return (VK_CONTROL, char.ToUpper(keyStr[5]));
+        return (0, char.ToUpper(keyStr[0]));
+    }
+
+    /// <summary>
+    /// Check whether a key string (possibly with modifier) is a valid game key.
+    /// </summary>
+    private static bool IsValidKeyString(string keyStr)
+    {
+        var (_, key) = ParseKeyString(keyStr);
+        return VirtualKeyCodes.ContainsKey(key);
+    }
+
     /// <summary>
     /// Create a keyboard player.
     /// </summary>
@@ -137,18 +163,18 @@ public class KeyboardPlayer
             if (totalDuration > 0)
             {
                 double progress = (evt.Time / totalDuration) * 100;
-                string keys = string.Join("+", evt.Keys);
-                Console.Write($"\r  {ProgressBar(progress)}  {evt.Time:F1}s / {totalDuration:F1}s  {keys,-8}");
+                string keys = string.Join(" ", evt.Keys);
+                Console.Write($"\r  {ProgressBar(progress)}  {evt.Time:F1}s / {totalDuration:F1}s  {keys,-12}");
             }
 
-            // Tap each key: press + brief hold + release
-            foreach (char key in evt.Keys)
-                PressKey(key);
+            // Tap each key: press modifiers + press key + brief hold + release
+            foreach (string key in evt.Keys)
+                PressKeyString(key);
 
             Thread.Sleep(30); // Brief hold for the game to register
 
-            foreach (char key in evt.Keys)
-                ReleaseKey(key);
+            foreach (string key in evt.Keys)
+                ReleaseKeyString(key);
         }
 
         Console.WriteLine(); // Clear progress line
@@ -163,8 +189,7 @@ public class KeyboardPlayer
             double time = note.Time / speedMultiplier;
             var keys = note.Keys
                 .Where(k => k.Length > 0)
-                .Select(k => char.ToUpper(k[0]))
-                .Where(k => VirtualKeyCodes.ContainsKey(k))
+                .Where(IsValidKeyString)
                 .ToList();
 
             if (keys.Count > 0)
@@ -196,6 +221,36 @@ public class KeyboardPlayer
         {
             SendKeyEvent(vk, isKeyUp: true);
         }
+    }
+
+    /// <summary>
+    /// Press a key string that may include a modifier (e.g. "Shift+Q", "Ctrl+E", or "Q").
+    /// Presses the modifier first, then the base key.
+    /// </summary>
+    private void PressKeyString(string keyStr)
+    {
+        if (_dryRun)
+            return;
+
+        var (modifier, key) = ParseKeyString(keyStr);
+        if (modifier != 0)
+            SendKeyEvent(modifier, isKeyUp: false);
+        PressKey(key);
+    }
+
+    /// <summary>
+    /// Release a key string that may include a modifier.
+    /// Releases the base key first, then the modifier.
+    /// </summary>
+    private void ReleaseKeyString(string keyStr)
+    {
+        if (_dryRun)
+            return;
+
+        var (modifier, key) = ParseKeyString(keyStr);
+        ReleaseKey(key);
+        if (modifier != 0)
+            SendKeyEvent(modifier, isKeyUp: true);
     }
 
     private static string ProgressBar(double percent)
@@ -329,6 +384,6 @@ public class KeyboardPlayer
     private class TapEvent
     {
         public double Time { get; set; }
-        public List<char> Keys { get; set; } = new();
+        public List<string> Keys { get; set; } = new();
     }
 }

@@ -5,7 +5,7 @@ using MusicPlayer.Models;
 namespace MusicPlayer;
 
 /// <summary>
-/// Converts MIDI files to the game's 21-key format.
+/// Converts MIDI files to the game's 36-key format.
 /// Pipeline: Parse → Select Track → Remap Pitch → Quantize → Simplify Chords → Export
 /// </summary>
 public class MidiConverter
@@ -313,7 +313,7 @@ public class MidiConverter
         // Mid row center ≈ MIDI 77.5 (midpoint of C5=72 .. B5=83).
         // We shift all notes by whole octaves (multiples of 12) so the median
         // pitch lands closest to this center, producing a more natural spread.
-        int midRangeCenter = 78; // ~F5, center of our 21-key range
+        int midRangeCenter = 78; // ~F5, center of our 36-key range
         var midiNotes = events.Select(e => e.MidiNote).OrderBy(n => n).ToList();
         int medianPitch = midiNotes[midiNotes.Count / 2];
 
@@ -339,7 +339,7 @@ public class MidiConverter
         {
             int shifted = e.MidiNote + bestShift;
             int remapped = _mapping.FindNearestNote(shifted);
-            char? key = _mapping.GetKey(remapped);
+            string? key = _mapping.GetKey(remapped);
 
             if (key == null)
             {
@@ -350,7 +350,7 @@ public class MidiConverter
             return new RawNoteEvent
             {
                 MidiNote = remapped,
-                Key = key.Value,
+                Key = key,
                 Time = e.Time,
                 Duration = e.Duration
             };
@@ -390,7 +390,7 @@ public class MidiConverter
 
             // Deduplicate keys in the same group
             var uniqueKeys = group
-                .Select(g => g.Key.ToString())
+                .Select(g => g.Key)
                 .Distinct()
                 .ToList();
 
@@ -417,7 +417,7 @@ public class MidiConverter
             // Keep the highest note (melody) and lowest note (bass) for
             // the best musical spread, then fill remaining slots from the top.
             var sortedKeys = e.Keys
-                .Select(k => new { Key = k, Midi = _mapping.GetMidiNote(k[0]) ?? 0 })
+                .Select(k => new { Key = k, Midi = _mapping.GetMidiNote(k) ?? 0 })
                 .OrderByDescending(k => k.Midi)
                 .ToList();
 
@@ -456,7 +456,7 @@ public class MidiConverter
     private class RawNoteEvent
     {
         public int MidiNote { get; set; }
-        public char Key { get; set; }
+        public string Key { get; set; } = string.Empty;
         public double Time { get; set; }
         public double Duration { get; set; }
     }
