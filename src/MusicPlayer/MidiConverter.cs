@@ -309,30 +309,76 @@ public class MidiConverter
         if (events.Count == 0)
             return new List<RawNoteEvent>();
 
-        // Calculate optimal octave shift to center notes around the Mid row.
-        // Mid row center ≈ MIDI 77.5 (midpoint of C5=72 .. B5=83).
-        // We shift all notes by whole octaves (multiples of 12) so the median
-        // pitch lands closest to this center, producing a more natural spread.
-        int midRangeCenter = 78; // ~F5, center of our 36-key range
-        var midiNotes = events.Select(e => e.MidiNote).OrderBy(n => n).ToList();
-        int medianPitch = midiNotes[midiNotes.Count / 2];
+        // Our 36-key range: MIDI 60 (C4) to 95 (B6)
+        const int rangeMin = 60;
+        const int rangeMax = 95;
 
-        // Find the octave shift (in semitones) that puts the median closest to center
+        var midiNotes = events.Select(e => e.MidiNote).ToList();
+
+        // Try all 12 semitone transpositions combined with octave shifts.
+        // For each candidate, score by: (1) how many notes land in range,
+        // (2) total clamping distance for out-of-range notes (less is better).
         int bestShift = 0;
-        int bestDistance = Math.Abs(medianPitch - midRangeCenter);
-        for (int shift = -60; shift <= 60; shift += 12)
+        int bestInRange = -1;
+        int bestClampDist = int.MaxValue;
+
+        for (int semitone = 0; semitone < 12; semitone++)
         {
-            int distance = Math.Abs((medianPitch + shift) - midRangeCenter);
-            if (distance < bestDistance)
+            // For this semitone offset, find the best octave shift
+            for (int octaveShift = -60; octaveShift <= 60; octaveShift += 12)
             {
-                bestDistance = distance;
-                bestShift = shift;
+                int totalShift = semitone + octaveShift;
+                int inRange = 0;
+                int clampDist = 0;
+
+                foreach (int note in midiNotes)
+                {
+                    int shifted = note + totalShift;
+                    if (shifted >= rangeMin && shifted <= rangeMax)
+                    {
+                        inRange++;
+                    }
+                    else
+                    {
+                        // Distance to nearest edge
+                        clampDist += shifted < rangeMin
+                            ? rangeMin - shifted
+                            : shifted - rangeMax;
+                    }
+                }
+
+                if (inRange > bestInRange ||
+                    (inRange == bestInRange && clampDist < bestClampDist))
+                {
+                    bestInRange = inRange;
+                    bestClampDist = clampDist;
+                    bestShift = totalShift;
+                }
             }
         }
 
+        // Report transposition to the user
         if (bestShift != 0)
         {
-            Console.WriteLine($"Shifting notes by {bestShift / 12:+#;-#;0} octave(s) to center around Mid row.");
+            int octaves = bestShift / 12;
+            int semitones = bestShift % 12;
+            string desc = "";
+            if (octaves != 0)
+                desc += $"{octaves:+#;-#;0} octave(s)";
+            if (semitones != 0)
+            {
+                if (desc.Length > 0) desc += " and ";
+                desc += $"{semitones:+#;-#;0} semitone(s)";
+            }
+            int outOfRange = midiNotes.Count - bestInRange;
+            Console.WriteLine($"Transposing {desc} — {bestInRange}/{midiNotes.Count} notes in range" +
+                (outOfRange > 0 ? $" ({outOfRange} clamped)" : "") + ".");
+        }
+        else
+        {
+            int outOfRange = midiNotes.Count - bestInRange;
+            if (outOfRange > 0)
+                Console.WriteLine($"No transposition needed — {bestInRange}/{midiNotes.Count} notes in range ({outOfRange} clamped).");
         }
 
         return events.Select(e =>

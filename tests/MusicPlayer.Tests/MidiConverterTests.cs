@@ -195,10 +195,10 @@ public class MidiConverterTests
     }
 
     [Fact]
-    public void Convert_CentersPitchAroundMidRow()
+    public void Convert_TransposesLowNotesIntoRange()
     {
-        // Create a MIDI file with all notes in C2-C3 range (very low).
-        // After centering, these should map mostly to Mid row keys.
+        // Create a MIDI file with all notes in C2-G2 range (very low, MIDI 36-43).
+        // After transposition, all notes should land within the 36-key range (MIDI 60-95).
         var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
             Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(120).MicrosecondsPerQuarterNote)
         { DeltaTime = 0 };
@@ -218,13 +218,59 @@ public class MidiConverterTests
             var converter = new MidiConverter();
             var song = converter.Convert(path);
 
-            // After centering, notes should use Mid row (A-J) predominantly
-            var midRowKeys = new HashSet<string>("ASDFGHJ".Select(c => c.ToString()));
-            int midRowCount = song.Notes.Sum(n => n.Keys.Count(k => midRowKeys.Contains(k)));
-            int totalKeys = song.Notes.Sum(n => n.Keys.Count);
+            // After optimal transposition, all 5 notes should be in range
+            // (they span only 7 semitones, easily fits in 36 keys)
+            Assert.Equal(5, song.Notes.Count);
 
-            Assert.True(midRowCount > totalKeys / 2,
-                $"Expected majority Mid-row keys after centering, got {midRowCount}/{totalKeys}");
+            // All notes should correspond to valid in-range keys
+            var mapping = new NoteMapping();
+            foreach (var note in song.Notes)
+            {
+                foreach (var key in note.Keys)
+                {
+                    int? midi = mapping.GetMidiNote(key);
+                    Assert.NotNull(midi);
+                    Assert.InRange(midi.Value, 60, 95);
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Convert_OptimalTransposition_MaximizesInRange()
+    {
+        // Create a MIDI file that spans more than 3 octaves.
+        // The transposition should maximize how many notes land in range.
+        var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
+            Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(120).MicrosecondsPerQuarterNote)
+        { DeltaTime = 0 };
+
+        // Notes from C3 (48) to C7 (96) — 4 octaves, exceeds 3-octave range
+        var noteValues = new[] { 48, 52, 55, 60, 64, 67, 72, 76, 79, 84, 88, 91, 96 };
+        var noteEvents = CreateNoteEvents(noteValues).ToList();
+        noteEvents.Insert(0, tempoEvent);
+
+        var midiFile = new Melanchall.DryWetMidi.Core.MidiFile(
+            new Melanchall.DryWetMidi.Core.TrackChunk(noteEvents));
+
+        string path = Path.GetTempFileName() + ".mid";
+        midiFile.Write(path);
+
+        try
+        {
+            var converter = new MidiConverter();
+            var song = converter.Convert(path);
+
+            Assert.NotEmpty(song.Notes);
+
+            // Most notes should be distinct — not all clamped to the same edge
+            var distinctKeys = song.Notes.SelectMany(n => n.Keys).Distinct().ToList();
+            Assert.True(distinctKeys.Count >= 5,
+                $"Expected at least 5 distinct keys after transposition, got {distinctKeys.Count}");
         }
         finally
         {
