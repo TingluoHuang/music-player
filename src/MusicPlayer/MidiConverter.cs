@@ -52,7 +52,7 @@ public class MidiConverter
         // Convert to our internal representation with timing in seconds
         var rawEvents = ConvertToTimedEvents(notes, tempoMap);
 
-        // Remap pitches to our 21-key range
+        // Remap pitches to our 36-key range
         var remappedEvents = RemapPitches(rawEvents);
 
         // Quantize timing
@@ -67,11 +67,14 @@ public class MidiConverter
         // Simplify chords (max N simultaneous keys)
         var simplifiedEvents = SimplifyChords(mergedEvents);
 
+        // Normalize speed so the fastest note gap is playable
+        var normalizedEvents = NormalizeSpeed(simplifiedEvents);
+
         return new Song
         {
             Title = title,
             Bpm = bpm,
-            Notes = simplifiedEvents
+            Notes = normalizedEvents
         };
     }
 
@@ -401,6 +404,46 @@ public class MidiConverter
                 Duration = e.Duration
             };
         }).Where(e => e != null).Select(e => e!).ToList();
+    }
+
+    /// <summary>
+    /// Minimum gap in seconds between consecutive notes.
+    /// The game needs ~30ms key hold + modifier overhead; 100ms gives comfortable margin.
+    /// </summary>
+    private const double MinNoteGapSec = 0.100;
+
+    /// <summary>
+    /// If the smallest gap between consecutive notes is below MinNoteGapSec,
+    /// uniformly stretch all timing so that gap becomes exactly MinNoteGapSec.
+    /// This preserves rhythm proportionally while ensuring every note is playable.
+    /// </summary>
+    private static List<Models.NoteEvent> NormalizeSpeed(List<Models.NoteEvent> events)
+    {
+        if (events.Count < 2)
+            return events;
+
+        // Find the minimum time gap between consecutive notes
+        double minGap = double.MaxValue;
+        for (int i = 1; i < events.Count; i++)
+        {
+            double gap = events[i].Time - events[i - 1].Time;
+            if (gap > 0 && gap < minGap)
+                minGap = gap;
+        }
+
+        if (minGap >= MinNoteGapSec || minGap <= 0)
+            return events; // Already playable or only simultaneous notes
+
+        double scaleFactor = MinNoteGapSec / minGap;
+        double effectiveSpeed = 1.0 / scaleFactor;
+        Console.WriteLine($"Normalizing speed: {effectiveSpeed:F2}x (min gap was {minGap * 1000:F0}ms → {MinNoteGapSec * 1000:F0}ms)");
+
+        return events.Select(e => new Models.NoteEvent
+        {
+            Time = Math.Round(e.Time * scaleFactor, 3),
+            Keys = e.Keys,
+            Duration = Math.Round(e.Duration * scaleFactor, 3)
+        }).ToList();
     }
 
     private List<RawNoteEvent> QuantizeTiming(List<RawNoteEvent> events, double gridSec)

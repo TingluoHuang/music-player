@@ -278,6 +278,87 @@ public class MidiConverterTests
         }
     }
 
+    [Fact]
+    public void Convert_NormalizesSpeed_WhenNotesTooFast()
+    {
+        // Create a MIDI file at 600 BPM with 16th notes — gaps will be ~25ms
+        // After normalization, minimum gap should be >= 100ms
+        var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
+            Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(600).MicrosecondsPerQuarterNote)
+        { DeltaTime = 0 };
+
+        // 8 very fast notes — at 600 BPM, a 16th note (delta 120 ticks) ≈ 25ms
+        var noteEvents = CreateNoteEventsWithDelta(
+            new[] { 60, 62, 64, 65, 67, 69, 71, 72 }, deltaTicks: 120).ToList();
+        noteEvents.Insert(0, tempoEvent);
+
+        var midiFile = new Melanchall.DryWetMidi.Core.MidiFile(
+            new Melanchall.DryWetMidi.Core.TrackChunk(noteEvents));
+
+        string path = Path.GetTempFileName() + ".mid";
+        midiFile.Write(path);
+
+        try
+        {
+            var converter = new MidiConverter();
+            var song = converter.Convert(path, quantizationMs: 0);
+
+            // Verify minimum gap between consecutive notes is >= 100ms
+            for (int i = 1; i < song.Notes.Count; i++)
+            {
+                double gap = song.Notes[i].Time - song.Notes[i - 1].Time;
+                if (gap > 0) // skip simultaneous notes
+                {
+                    Assert.True(gap >= 0.095, // small tolerance for rounding
+                        $"Gap between notes {i - 1} and {i} is {gap * 1000:F0}ms (expected >= 100ms)");
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Convert_DoesNotNormalize_WhenSpeedOk()
+    {
+        // Create a normal-speed MIDI file — should not be modified
+        string testFile = CreateTestMidiFile();
+
+        try
+        {
+            var converter = new MidiConverter();
+            var song = converter.Convert(testFile, quantizationMs: 0);
+
+            // Normalization should not kick in (gaps already well above 100ms).
+            // The first two notes should have the same gap as the raw MIDI timing.
+            // Verify the gap did not change by ensuring all positive gaps are equal
+            // (uniform spacing = no normalization distortion).
+            Assert.True(song.Notes.Count >= 2, "Expected at least 2 notes");
+
+            var gaps = new List<double>();
+            for (int i = 1; i < song.Notes.Count; i++)
+            {
+                double gap = song.Notes[i].Time - song.Notes[i - 1].Time;
+                if (gap > 0) gaps.Add(gap);
+            }
+
+            Assert.NotEmpty(gaps);
+            // All gaps should be identical (no normalization occurred)
+            double firstGap = gaps[0];
+            Assert.True(firstGap >= 0.1, $"First gap {firstGap:F3}s should be >= 100ms (no normalization needed)");
+            foreach (var gap in gaps)
+            {
+                Assert.Equal(firstGap, gap, precision: 3);
+            }
+        }
+        finally
+        {
+            File.Delete(testFile);
+        }
+    }
+
     /// <summary>
     /// Create a simple MIDI file with a C major scale (C4-B4) for testing.
     /// </summary>
@@ -337,6 +418,12 @@ public class MidiConverterTests
 
     private static IEnumerable<Melanchall.DryWetMidi.Core.MidiEvent> CreateNoteEvents(int[] notes)
     {
+        return CreateNoteEventsWithDelta(notes, deltaTicks: 480);
+    }
+
+    private static IEnumerable<Melanchall.DryWetMidi.Core.MidiEvent> CreateNoteEventsWithDelta(
+        int[] notes, int deltaTicks)
+    {
         foreach (int note in notes)
         {
             yield return new Melanchall.DryWetMidi.Core.NoteOnEvent(
@@ -347,7 +434,7 @@ public class MidiConverterTests
             yield return new Melanchall.DryWetMidi.Core.NoteOffEvent(
                 (Melanchall.DryWetMidi.Common.SevenBitNumber)(byte)note,
                 (Melanchall.DryWetMidi.Common.SevenBitNumber)0)
-            { DeltaTime = 480 };  // quarter note at standard resolution
+            { DeltaTime = deltaTicks };
         }
     }
 }
