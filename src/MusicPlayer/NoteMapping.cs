@@ -152,6 +152,14 @@ public class NoteMapping
         return _keyToMidi.TryGetValue(key, out var note) ? note : null;
     }
 
+    // Pitch classes that are natural (no modifier needed): C D E F G A B
+    private static readonly HashSet<int> NaturalPitchClasses = new() { 0, 2, 4, 5, 7, 9, 11 };
+
+    /// <summary>
+    /// Check if a MIDI note is a natural note (no Shift/Ctrl modifier needed).
+    /// </summary>
+    public static bool IsNaturalNote(int midiNote) => NaturalPitchClasses.Contains(midiNote % 12);
+
     /// <summary>
     /// Get the modifier type for a key string: "Shift", "Ctrl", or null for plain keys.
     /// </summary>

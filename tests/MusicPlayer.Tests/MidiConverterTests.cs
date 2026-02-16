@@ -279,6 +279,48 @@ public class MidiConverterTests
     }
 
     [Fact]
+    public void Convert_TranspositionPrefersNaturalKeys()
+    {
+        // Create a MIDI file where all notes are chromatic (sharps/flats).
+        // E.g. C#4=61, D#4=63, F#4=66, G#4=68, A#4=70 — all need Shift/Ctrl.
+        // A good transposition should shift these to maximize natural key hits.
+        // Shifting by -1 semitone gives C4=60, D4=62, F4=65, G4=67, A4=69 — all natural!
+        var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
+            Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(120).MicrosecondsPerQuarterNote)
+        { DeltaTime = 0 };
+
+        var noteValues = new[] { 61, 63, 66, 68, 70 }; // All chromatic
+        var noteEvents = CreateNoteEvents(noteValues).ToList();
+        noteEvents.Insert(0, tempoEvent);
+
+        var midiFile = new Melanchall.DryWetMidi.Core.MidiFile(
+            new Melanchall.DryWetMidi.Core.TrackChunk(noteEvents));
+
+        string path = Path.GetTempFileName() + ".mid";
+        midiFile.Write(path);
+
+        try
+        {
+            var converter = new MidiConverter();
+            var song = converter.Convert(path, quantizationMs: 0);
+
+            Assert.NotEmpty(song.Notes);
+
+            // After optimal transposition, most notes should be natural (no modifier)
+            int naturalCount = song.Notes
+                .SelectMany(n => n.Keys)
+                .Count(k => NoteMapping.GetModifier(k) == null);
+
+            Assert.True(naturalCount >= 4,
+                $"Expected at least 4 natural keys after transposition, got {naturalCount}/{song.Notes.Count}");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Convert_NormalizesSpeed_WhenNotesTooFast()
     {
         // Create a MIDI file at 600 BPM with 16th notes — gaps will be ~25ms
@@ -382,6 +424,26 @@ public class MidiConverterTests
                 Assert.False(hasShift && hasCtrl,
                     $"Chord at t={note.Time} mixes Shift and Ctrl: [{string.Join(", ", note.Keys)}]");
             }
+        }
+        finally
+        {
+            File.Delete(testFile);
+        }
+    }
+
+    [Fact]
+    public void Convert_EffectiveBpmWithinTargetRange()
+    {
+        // Any converted song should have BPM clamped to 80-100
+        string testFile = CreateTestMidiFile();
+
+        try
+        {
+            var converter = new MidiConverter();
+            var song = converter.Convert(testFile);
+
+            Assert.True(song.Bpm >= 80 && song.Bpm <= 100,
+                $"Effective BPM {song.Bpm} should be between 80 and 100");
         }
         finally
         {

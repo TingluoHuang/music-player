@@ -35,7 +35,7 @@ Chromatic notes — Shift for sharps, Ctrl for flats (15 keys):
 This tool:
 1. **Searches** for MIDI files online ([FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [Ichigo's](https://ichigos.com), [VGMusic](https://www.vgmusic.com), [MidiShow](https://www.midishow.com))
 2. **Validates** downloads automatically — only shows files that are confirmed valid
-3. **Converts** MIDI notes into the 36-key chromatic layout (pitch remapping, quantization, chord simplification) — chromatic notes are preserved using Shift (sharps) and Ctrl (flats) instead of being snapped to the nearest natural note
+3. **Converts** MIDI notes into the 36-key layout — automatically transposes to maximize natural key usage (fewer Shift/Ctrl presses), clamps effective BPM to 80–100 for comfortable playback, resolves mixed-modifier chords, and applies quantization and chord simplification
 4. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`, pressing Shift/Ctrl modifiers as needed
 
 ## Game Setup

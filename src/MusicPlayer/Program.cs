@@ -157,7 +157,7 @@ static async Task<int> ConvertFile(string file, double quantize)
     Console.WriteLine($"\nConverted: {song.Title}");
     Console.WriteLine($"  Notes: {song.Notes.Count}");
     Console.WriteLine($"  Duration: {song.Duration:F1}s");
-    Console.WriteLine($"  BPM: {song.Bpm}");
+    Console.WriteLine($"  BPM: {song.Bpm} (effective playback speed)");
     Console.WriteLine($"  Saved to: {output}");
     Console.WriteLine($"\nTo play:     ./MusicPlayer.exe play \"{output}\"");
     Console.WriteLine($"To preview:  ./MusicPlayer.exe play \"{output}\" --dry-run");

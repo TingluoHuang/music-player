@@ -70,10 +70,14 @@ public class MidiConverter
         // Normalize speed so the fastest note gap is playable
         var normalizedEvents = NormalizeSpeed(simplifiedEvents);
 
+        // Calculate effective BPM from actual note timing and clamp to target range
+        int effectiveBpm = bpm;
+        (normalizedEvents, effectiveBpm) = ClampBpm(normalizedEvents, bpm, targetMinBpm: 80, targetMaxBpm: 100);
+
         return new Song
         {
             Title = title,
-            Bpm = bpm,
+            Bpm = effectiveBpm,
             Notes = normalizedEvents
         };
     }
@@ -319,10 +323,13 @@ public class MidiConverter
         var midiNotes = events.Select(e => e.MidiNote).ToList();
 
         // Try all 12 semitone transpositions combined with octave shifts.
-        // For each candidate, score by: (1) how many notes land in range,
-        // (2) total clamping distance for out-of-range notes (less is better).
+        // Scoring priority:
+        //   1. Most notes in range (mandatory — can't play out-of-range notes)
+        //   2. Most natural notes (no Shift/Ctrl modifier needed — easier to play)
+        //   3. Least clamping distance for out-of-range notes
         int bestShift = 0;
         int bestInRange = -1;
+        int bestNatural = -1;
         int bestClampDist = int.MaxValue;
 
         for (int semitone = 0; semitone < 12; semitone++)
@@ -332,6 +339,7 @@ public class MidiConverter
             {
                 int totalShift = semitone + octaveShift;
                 int inRange = 0;
+                int natural = 0;
                 int clampDist = 0;
 
                 foreach (int note in midiNotes)
@@ -340,6 +348,8 @@ public class MidiConverter
                     if (shifted >= rangeMin && shifted <= rangeMax)
                     {
                         inRange++;
+                        if (NoteMapping.IsNaturalNote(shifted))
+                            natural++;
                     }
                     else
                     {
@@ -351,9 +361,11 @@ public class MidiConverter
                 }
 
                 if (inRange > bestInRange ||
-                    (inRange == bestInRange && clampDist < bestClampDist))
+                    (inRange == bestInRange && natural > bestNatural) ||
+                    (inRange == bestInRange && natural == bestNatural && clampDist < bestClampDist))
                 {
                     bestInRange = inRange;
+                    bestNatural = natural;
                     bestClampDist = clampDist;
                     bestShift = totalShift;
                 }
@@ -374,14 +386,18 @@ public class MidiConverter
                 desc += $"{semitones:+#;-#;0} semitone(s)";
             }
             int outOfRange = midiNotes.Count - bestInRange;
+            int chromatic = bestInRange - bestNatural;
             Console.WriteLine($"Transposing {desc} — {bestInRange}/{midiNotes.Count} notes in range" +
-                (outOfRange > 0 ? $" ({outOfRange} clamped)" : "") + ".");
+                (outOfRange > 0 ? $" ({outOfRange} clamped)" : "") +
+                $", {bestNatural} natural / {chromatic} chromatic.");
         }
         else
         {
             int outOfRange = midiNotes.Count - bestInRange;
-            if (outOfRange > 0)
-                Console.WriteLine($"No transposition needed — {bestInRange}/{midiNotes.Count} notes in range ({outOfRange} clamped).");
+            int chromatic = bestInRange - bestNatural;
+            string rangeInfo = outOfRange > 0 ? $" ({outOfRange} clamped)" : "";
+            Console.WriteLine($"No transposition needed — {bestInRange}/{midiNotes.Count} notes in range{rangeInfo}" +
+                $", {bestNatural} natural / {chromatic} chromatic.");
         }
 
         return events.Select(e =>
@@ -444,6 +460,59 @@ public class MidiConverter
             Keys = e.Keys,
             Duration = Math.Round(e.Duration * scaleFactor, 3)
         }).ToList();
+    }
+
+    /// <summary>
+    /// Clamp the effective BPM to a target range (default 80-100).
+    /// If the song's effective playback BPM falls outside this range, uniformly
+    /// scale all note timings to bring it within range.
+    /// </summary>
+    private static (List<Models.NoteEvent> Events, int EffectiveBpm) ClampBpm(
+        List<Models.NoteEvent> events, int originalBpm,
+        int targetMinBpm = 80, int targetMaxBpm = 100)
+    {
+        if (events.Count < 2)
+            return (events, Math.Clamp(originalBpm, targetMinBpm, targetMaxBpm));
+
+        // Calculate effective BPM from the median note-to-note gap.
+        // Median is more robust than average against outliers (long rests, chords).
+        var gaps = new List<double>();
+        for (int i = 1; i < events.Count; i++)
+        {
+            double gap = events[i].Time - events[i - 1].Time;
+            if (gap > 0)
+                gaps.Add(gap);
+        }
+
+        if (gaps.Count == 0)
+            return (events, originalBpm);
+
+        gaps.Sort();
+        double medianGap = gaps[gaps.Count / 2];
+
+        // Treat median gap as a beat → effective BPM
+        double effectiveBpm = 60.0 / medianGap;
+
+        if (effectiveBpm >= targetMinBpm && effectiveBpm <= targetMaxBpm)
+        {
+            Console.WriteLine($"Effective BPM: {effectiveBpm:F0} (original: {originalBpm}) — within target range.");
+            return (events, (int)Math.Round(effectiveBpm));
+        }
+
+        // Clamp to the nearest edge of the target range
+        double targetBpm = effectiveBpm < targetMinBpm ? targetMinBpm : targetMaxBpm;
+        double scaleFactor = effectiveBpm / targetBpm; // >1 means slowing down, <1 means speeding up
+
+        Console.WriteLine($"Effective BPM: {effectiveBpm:F0} (original: {originalBpm}) → adjusting to {targetBpm:F0} BPM.");
+
+        var scaled = events.Select(e => new Models.NoteEvent
+        {
+            Time = Math.Round(e.Time * scaleFactor, 3),
+            Keys = e.Keys,
+            Duration = Math.Round(e.Duration * scaleFactor, 3)
+        }).ToList();
+
+        return (scaled, (int)Math.Round(targetBpm));
     }
 
     private List<RawNoteEvent> QuantizeTiming(List<RawNoteEvent> events, double gridSec)
