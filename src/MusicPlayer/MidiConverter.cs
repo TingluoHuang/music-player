@@ -72,7 +72,7 @@ public class MidiConverter
 
         // Calculate effective BPM from actual note timing and clamp to target range
         int effectiveBpm = bpm;
-        (normalizedEvents, effectiveBpm) = ClampBpm(normalizedEvents, bpm, targetMinBpm: 80, targetMaxBpm: 100);
+        (normalizedEvents, effectiveBpm) = ClampBpm(normalizedEvents, bpm, targetMinBpm: 110, targetMaxBpm: 130);
 
         return new Song
         {
@@ -463,13 +463,13 @@ public class MidiConverter
     }
 
     /// <summary>
-    /// Clamp the effective BPM to a target range (default 80-100).
+    /// Clamp the effective BPM to a target range (default 110-130).
     /// If the song's effective playback BPM falls outside this range, uniformly
     /// scale all note timings to bring it within range.
     /// </summary>
     private static (List<Models.NoteEvent> Events, int EffectiveBpm) ClampBpm(
         List<Models.NoteEvent> events, int originalBpm,
-        int targetMinBpm = 80, int targetMaxBpm = 100)
+        int targetMinBpm = 110, int targetMaxBpm = 130)
     {
         if (events.Count < 2)
             return (events, Math.Clamp(originalBpm, targetMinBpm, targetMaxBpm));

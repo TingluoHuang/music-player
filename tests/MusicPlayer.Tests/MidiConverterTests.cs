@@ -442,8 +442,8 @@ public class MidiConverterTests
             var converter = new MidiConverter();
             var song = converter.Convert(testFile);
 
-            Assert.True(song.Bpm >= 80 && song.Bpm <= 100,
-                $"Effective BPM {song.Bpm} should be between 80 and 100");
+            Assert.True(song.Bpm >= 110 && song.Bpm <= 130,
+                $"Effective BPM {song.Bpm} should be between 110 and 130");
         }
         finally
         {
