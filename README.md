@@ -6,7 +6,7 @@ Convert any song into keyboard sequences and auto-play them in the Where Winds M
 
 1. Download `MusicPlayer.exe` from [Releases](https://github.com/TingluoHuang/music-player/releases) (or [build from source](#building-from-source))
 2. **Right-click → Run as Administrator** (required for the game to receive keystrokes)
-3. In the game, [switch to the 36-key layout](#game-setup) (required for sharps/flats)
+3. In the game, [switch to the 36-key layout](#game-setup) (required for chromatic notes)
 4. Convert and play:
 
 ```bash
@@ -24,19 +24,18 @@ Natural notes (21 keys):
   Mid:   A=C5  S=D5  D=E5  F=F5  G=G5  H=A5  J=B5
   Low:   Z=C4  X=D4  C=E4  V=F4  B=G4  N=A4  M=B4
 
-Sharps — Shift + key (15 keys):
-  High:  ⇧Q=C#6  ⇧W=D#6  ⇧R=F#6  ⇧T=G#6  ⇧Y=A#6
-  Mid:   ⇧A=C#5  ⇧S=D#5  ⇧F=F#5  ⇧G=G#5  ⇧H=A#5
-  Low:   ⇧Z=C#4  ⇧X=D#4  ⇧V=F#4  ⇧B=G#4  ⇧N=A#4
+Chromatic notes — Shift for sharps, Ctrl for flats (15 keys):
+  High:  ⇧Q=C#6  ^E=Eb6  ⇧R=F#6  ⇧T=G#6  ^U=Bb6
+  Mid:   ⇧A=C#5  ^D=Eb5  ⇧F=F#5  ⇧G=G#5  ^J=Bb5
+  Low:   ⇧Z=C#4  ^C=Eb4  ⇧V=F#4  ⇧B=G#4  ^M=Bb4
 
-Flats — Ctrl + key (alternative for the same sharps):
-  e.g.  Ctrl+X=Db4  Ctrl+C=Eb4  Ctrl+E=Eb6  etc.
+  ⇧ = Shift (sharp)   ^ = Ctrl (flat)
 ```
 
 This tool:
 1. **Searches** for MIDI files online ([FreeMidi](https://freemidi.org), [MidiWorld](https://www.midiworld.com), [Midis101](https://midis101.com), [Ichigo's](https://ichigos.com), [VGMusic](https://www.vgmusic.com), [MidiShow](https://www.midishow.com))
 2. **Validates** downloads automatically — only shows files that are confirmed valid
-3. **Converts** MIDI notes into the 36-key chromatic layout (pitch remapping, quantization, chord simplification) — sharps and flats are preserved instead of being snapped to the nearest natural note
+3. **Converts** MIDI notes into the 36-key chromatic layout (pitch remapping, quantization, chord simplification) — chromatic notes are preserved using Shift (sharps) and Ctrl (flats) instead of being snapped to the nearest natural note
 4. **Auto-plays** the song by simulating keyboard input via Win32 `SendInput`, pressing Shift/Ctrl modifiers as needed
 
 ## Game Setup
@@ -44,7 +43,7 @@ This tool:
 Before playing, you must switch to the **36-key keyboard** in the game:
 
 1. Open the music system and enter **Free Play** mode
-2. Press **F1** to cycle the keyboard layout until you see the **36-key** version (with sharp/flat keys visible)
+2. Press **F1** to cycle the keyboard layout until you see the **36-key** version (with chromatic keys visible)
 3. The 36-key layout adds Shift (sharp) and Ctrl (flat) modifiers — this is required for the tool to play chromatic notes correctly
 
 > **Important:** The game defaults to a 21-key (diatonic only) layout. If you stay on 21 keys, any sharp/flat notes in the song will not play correctly.
@@ -156,7 +155,7 @@ Converted songs are saved as JSON in `songs/`:
 }
 ```
 
-Key format: plain letter for natural notes (`"Z"`, `"A"`, `"Q"`), `"Shift+X"` for sharps, `"Ctrl+X"` for flats. You can manually edit these files to fix notes or adjust timing.
+Key format: plain letter for natural notes (`"Z"`, `"A"`, `"Q"`), `"Shift+Z"` for sharps (C#), `"Ctrl+C"` for flats (Eb). You can manually edit these files to fix notes or adjust timing.
 
 ---
 

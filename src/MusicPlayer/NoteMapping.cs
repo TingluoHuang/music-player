@@ -9,28 +9,34 @@ namespace MusicPlayer;
 ///   Row 3 (Low):   Z  X  C  V  B  N  M   → C4 D4 E4 F4 G4 A4 B4
 ///
 ///   Shift + key → sharp (#): raises the note by 1 semitone
-///     e.g. Shift+Q = C#6, Shift+W = D#6, Shift+R = F#6, Shift+T = G#6, Shift+Y = A#6
+///     C#: Shift+Z / Shift+A / Shift+Q
+///     F#: Shift+V / Shift+F / Shift+R
+///     G#: Shift+B / Shift+G / Shift+T
 ///   Ctrl  + key → flat  (b): lowers the note by 1 semitone
-///     e.g. Ctrl+E = Eb6,  Ctrl+G = Gb5,  Ctrl+H = Ab5,  Ctrl+J = Bb5
+///     Eb: Ctrl+C / Ctrl+D / Ctrl+E
+///     Bb: Ctrl+M / Ctrl+J / Ctrl+U
 /// </summary>
 public class NoteMapping
 {
     // C-major diatonic scale intervals (semitones from root)
     private static readonly int[] DiatonicIntervals = { 0, 2, 4, 5, 7, 9, 11 };
 
-    // Chromatic (sharp) intervals and the index of the diatonic key to apply Shift to.
-    // semitone 1 (C#) → Shift on diatonic index 0 (C key)
-    // semitone 3 (D#) → Shift on diatonic index 1 (D key)
-    // semitone 6 (F#) → Shift on diatonic index 3 (F key)
-    // semitone 8 (G#) → Shift on diatonic index 4 (G key)
-    // semitone 10(A#) → Shift on diatonic index 5 (A key)
-    private static readonly Dictionary<int, int> SharpSemitoneToKeyIndex = new()
+    // Chromatic note definitions: (semitone, modifier, keyIndex)
+    //   modifier = true  → Shift on keyIndex (sharp: raises the note)
+    //   modifier = false → Ctrl  on keyIndex (flat:  lowers the note)
+    //
+    // semitone 1  (C#) → Shift on index 0 (C key)   — #1
+    // semitone 3  (Eb) → Ctrl  on index 2 (E key)   — b3
+    // semitone 6  (F#) → Shift on index 3 (F key)   — #4
+    // semitone 8  (G#) → Shift on index 4 (G key)   — #5
+    // semitone 10 (Bb) → Ctrl  on index 6 (B key)   — b7
+    private static readonly (int Semitone, bool IsShift, int KeyIndex)[] ChromaticNotes =
     {
-        { 1, 0 },   // C#
-        { 3, 1 },   // D#
-        { 6, 3 },   // F#
-        { 8, 4 },   // G#
-        { 10, 5 },  // A#
+        (1,  true,  0),  // C#  = Shift + C key
+        (3,  false, 2),  // Eb  = Ctrl  + E key
+        (6,  true,  3),  // F#  = Shift + F key
+        (8,  true,  4),  // G#  = Shift + G key
+        (10, false, 6),  // Bb  = Ctrl  + B key
     };
 
     // Keyboard layout: row 3 (low), row 2 (mid), row 1 (high)
@@ -52,7 +58,7 @@ public class NoteMapping
     public IReadOnlyList<int> ValidMidiNotes { get; }
 
     /// <summary>
-    /// Map from MIDI note number → keyboard key string (e.g. "Q", "Shift+Q", "Ctrl+E").
+    /// Map from MIDI note number → keyboard key string (e.g. "Q", "Shift+A", "Ctrl+D").
     /// </summary>
     private readonly Dictionary<int, string> _midiToKey = new();
 
@@ -82,28 +88,43 @@ public class NoteMapping
                 validNotes.Add(midiNote);
             }
 
-            // Map the 5 chromatic (sharp/flat) notes using Shift modifier
-            foreach (var (semitone, keyIndex) in SharpSemitoneToKeyIndex)
+            // Map the 5 chromatic notes.
+            // The game uses Shift for sharps (#1, #4, #5) and Ctrl for flats (b3, b7).
+            foreach (var (semitone, isShift, keyIndex) in ChromaticNotes)
             {
                 int midiNote = octaveBase + semitone;
                 char baseKey = KeyboardRows[row][keyIndex];
-                string sharpKey = $"Shift+{baseKey}";
+                string modifier = isShift ? "Shift" : "Ctrl";
+                string primaryKey = $"{modifier}+{baseKey}";
 
-                _midiToKey[midiNote] = sharpKey;
-                _keyToMidi[sharpKey] = midiNote;
+                _midiToKey[midiNote] = primaryKey;
+                _keyToMidi[primaryKey] = midiNote;
                 validNotes.Add(midiNote);
 
-                // Also register the Ctrl+flat alternative so it resolves during playback.
-                // e.g. C# = Shift+Z = Ctrl+X (Db), D# = Shift+X = Ctrl+C (Eb), etc.
-                int flatKeyIndex = keyIndex + 1; // The diatonic note one step above
-                // For A# (keyIndex=5), flat is Ctrl on B key (keyIndex=6)
-                if (flatKeyIndex < 7)
+                // Register the enharmonic alias (Shift↔Ctrl on the neighboring key)
+                if (isShift)
                 {
-                    char flatBase = KeyboardRows[row][flatKeyIndex];
-                    string flatKey = $"Ctrl+{flatBase}";
-                    // Don't overwrite _midiToKey — Shift is the primary representation
-                    if (!_keyToMidi.ContainsKey(flatKey))
-                        _keyToMidi[flatKey] = midiNote;
+                    // Shift+X = sharp → also register Ctrl on the next key up as alias
+                    int flatKeyIndex = keyIndex + 1;
+                    if (flatKeyIndex < 7)
+                    {
+                        char flatBase = KeyboardRows[row][flatKeyIndex];
+                        string flatKey = $"Ctrl+{flatBase}";
+                        if (!_keyToMidi.ContainsKey(flatKey))
+                            _keyToMidi[flatKey] = midiNote;
+                    }
+                }
+                else
+                {
+                    // Ctrl+X = flat → also register Shift on the previous key as alias
+                    int sharpKeyIndex = keyIndex - 1;
+                    if (sharpKeyIndex >= 0)
+                    {
+                        char sharpBase = KeyboardRows[row][sharpKeyIndex];
+                        string sharpKey = $"Shift+{sharpBase}";
+                        if (!_keyToMidi.ContainsKey(sharpKey))
+                            _keyToMidi[sharpKey] = midiNote;
+                    }
                 }
             }
         }
@@ -114,7 +135,7 @@ public class NoteMapping
 
     /// <summary>
     /// Get the keyboard key string for a MIDI note number.
-    /// Returns a plain key like "Q" for natural notes, or "Shift+Q" for sharps.
+    /// Returns a plain key like "Q" for natural notes, "Shift+A" for sharps, or "Ctrl+D" for flats.
     /// Returns null if the note is not in our 36-key range.
     /// </summary>
     public string? GetKey(int midiNote)
@@ -124,7 +145,7 @@ public class NoteMapping
 
     /// <summary>
     /// Get the MIDI note number for a keyboard key string.
-    /// Accepts plain keys ("Q"), sharps ("Shift+Q"), or flats ("Ctrl+E").
+    /// Accepts plain keys ("Q"), sharps ("Shift+A"), or flats ("Ctrl+D").
     /// </summary>
     public int? GetMidiNote(string key)
     {
@@ -214,17 +235,18 @@ public class NoteMapping
             }
             lines.Add($"  {rowLabels[row],-4}: {string.Join("  ", natural)}");
 
-            // Sharp notes (Shift+key)
-            var sharps = new List<string>();
-            foreach (var (semitone, keyIndex) in SharpSemitoneToKeyIndex)
+            // Chromatic notes (Shift for sharps, Ctrl for flats)
+            var chromatics = new List<string>();
+            foreach (var (semitone, isShift, keyIndex) in ChromaticNotes)
             {
                 int octave = BaseOctave + row;
                 int midiNote = (octave + 1) * 12 + semitone;
                 char baseKey = KeyboardRows[row][keyIndex];
                 string noteName = MidiNoteToName(midiNote);
-                sharps.Add($"⇧{baseKey}={noteName}");
+                string symbol = isShift ? "⇧" : "^";
+                chromatics.Add($"{symbol}{baseKey}={noteName}");
             }
-            lines.Add($"        {string.Join("  ", sharps)}");
+            lines.Add($"        {string.Join("  ", chromatics)}");
         }
 
         return string.Join(Environment.NewLine, lines);
