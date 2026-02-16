@@ -83,7 +83,16 @@ public class NoteMappingTests
     [InlineData("Ctrl+B", 66)]   // Gb4 = F#4
     [InlineData("Ctrl+N", 68)]   // Ab4 = G#4
     [InlineData("Ctrl+M", 70)]   // Bb4 = A#4
+    [InlineData("Ctrl+S", 73)]   // Db5 = C#5
+    [InlineData("Ctrl+D", 75)]   // Eb5 = D#5
+    [InlineData("Ctrl+G", 78)]   // Gb5 = F#5
+    [InlineData("Ctrl+H", 80)]   // Ab5 = G#5
+    [InlineData("Ctrl+J", 82)]   // Bb5 = A#5
+    [InlineData("Ctrl+W", 85)]   // Db6 = C#6
     [InlineData("Ctrl+E", 87)]   // Eb6 = D#6
+    [InlineData("Ctrl+T", 90)]   // Gb6 = F#6
+    [InlineData("Ctrl+Y", 92)]   // Ab6 = G#6
+    [InlineData("Ctrl+U", 94)]   // Bb6 = A#6
     public void KeyToMidiMapping_FlatAlternatives(string key, int expectedMidi)
     {
         int? midi = _mapping.GetMidiNote(key);

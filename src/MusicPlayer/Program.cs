@@ -301,7 +301,7 @@ static int HandleMapping()
 static int HandleTest(string[] args)
 {
     int delay = 3;
-    char key = 'Z'; // Default to Z (C4, lowest note)
+    string keyStr = "Z"; // Default to Z (C4, lowest note)
 
     for (int i = 0; i < args.Length; i++)
     {
@@ -312,13 +312,13 @@ static int HandleTest(string[] args)
                 break;
             default:
                 if (!args[i].StartsWith("--") && args[i].Length > 0)
-                    key = char.ToUpper(args[i][0]);
+                    keyStr = args[i];
                 break;
         }
     }
 
     Console.WriteLine("=== Keyboard Input Test ===");
-    Console.WriteLine($"Key to send: {key}");
+    Console.WriteLine($"Key to send: {keyStr}");
     Console.WriteLine("Switch to the game window now!");
     Console.WriteLine();
 
@@ -330,7 +330,7 @@ static int HandleTest(string[] args)
     Console.WriteLine("\rSending!         ");
 
     var player = new KeyboardPlayer();
-    player.TestKey(key);
+    player.TestKey(keyStr);
 
     Console.WriteLine();
     Console.WriteLine("If the game didn't receive the key:");

@@ -127,6 +127,17 @@ public class KeyboardPlayer
         }
     }
 
+    // Delay between pressing a modifier and pressing the base key (ms).
+    // Gives the game time to register the modifier state.
+    private const int ModifierSettleMs = 15;
+
+    // How long to hold the key down for the game to register the tap (ms).
+    private const int KeyHoldMs = 30;
+
+    // If the next note is within this many seconds, keep shared modifiers held
+    // to avoid rapid release/re-press that the game can miss.
+    private const double ModifierPersistThresholdSec = 0.15;
+
     private async Task PlayRealAsync(Song song, double speedMultiplier,
         CancellationToken cancellationToken)
     {
@@ -140,8 +151,12 @@ public class KeyboardPlayer
         // Game only cares about the key tap, not how long it's held
         var events = BuildTapTimeline(song, speedMultiplier);
 
-        foreach (var evt in events)
+        // Track which modifier keys are currently held down
+        var heldModifiers = new HashSet<ushort>();
+
+        for (int i = 0; i < events.Count; i++)
         {
+            var evt = events[i];
             cancellationToken.ThrowIfCancellationRequested();
 
             // Wait until it's time for this event
@@ -167,15 +182,83 @@ public class KeyboardPlayer
                 Console.Write($"\r  {ProgressBar(progress)}  {evt.Time:F1}s / {totalDuration:F1}s  {keys,-12}");
             }
 
-            // Tap each key: press modifiers + press key + brief hold + release
-            foreach (string key in evt.Keys)
-                PressKeyString(key);
+            // --- Grouped modifier approach ---
+            // 1. Determine which modifiers and base keys are needed
+            var neededModifiers = new HashSet<ushort>();
+            var baseKeys = new List<char>();
+            foreach (string keyStr in evt.Keys)
+            {
+                var (modifier, key) = ParseKeyString(keyStr);
+                if (modifier != 0)
+                    neededModifiers.Add(modifier);
+                baseKeys.Add(key);
+            }
 
-            Thread.Sleep(30); // Brief hold for the game to register
+            // 2. Release any held modifiers not needed by this event
+            foreach (ushort mod in heldModifiers.Except(neededModifiers).ToList())
+            {
+                SendKeyEvent(mod, isKeyUp: true);
+                heldModifiers.Remove(mod);
+            }
 
-            foreach (string key in evt.Keys)
-                ReleaseKeyString(key);
+            // 3. Press any modifiers not already held
+            var newModifiers = neededModifiers.Except(heldModifiers).ToList();
+            foreach (ushort mod in newModifiers)
+            {
+                SendKeyEvent(mod, isKeyUp: false);
+                heldModifiers.Add(mod);
+            }
+
+            // 4. Small delay for the game to register the modifier state
+            if (newModifiers.Count > 0)
+                Thread.Sleep(ModifierSettleMs);
+
+            // 5. Press all base keys simultaneously
+            foreach (char key in baseKeys)
+                PressKey(key);
+
+            // 6. Hold for the game to register the tap
+            Thread.Sleep(KeyHoldMs);
+
+            // 7. Release all base keys
+            foreach (char key in baseKeys)
+                ReleaseKey(key);
+
+            // 8. Decide whether to release modifiers now or keep them for the next note.
+            //    If the next event is soon AND shares the same modifiers, keep them held
+            //    to avoid rapid modifier flickering that the game can miss.
+            bool keepModifiers = false;
+            if (i + 1 < events.Count)
+            {
+                double gap = events[i + 1].Time - evt.Time;
+                if (gap <= ModifierPersistThresholdSec)
+                {
+                    // Check if next event needs any of the currently held modifiers
+                    var nextModifiers = new HashSet<ushort>();
+                    foreach (string keyStr in events[i + 1].Keys)
+                    {
+                        var (mod, _) = ParseKeyString(keyStr);
+                        if (mod != 0)
+                            nextModifiers.Add(mod);
+                    }
+
+                    keepModifiers = nextModifiers.Overlaps(heldModifiers);
+                }
+            }
+
+            if (!keepModifiers)
+            {
+                // Release all modifiers
+                foreach (ushort mod in heldModifiers)
+                    SendKeyEvent(mod, isKeyUp: true);
+                heldModifiers.Clear();
+            }
         }
+
+        // Safety: ensure all modifiers are released at the end
+        foreach (ushort mod in heldModifiers)
+            SendKeyEvent(mod, isKeyUp: true);
+        heldModifiers.Clear();
 
         Console.WriteLine(); // Clear progress line
     }
@@ -263,9 +346,9 @@ public class KeyboardPlayer
 
     /// <summary>
     /// Send a test key press to verify the game receives input.
-    /// Press and immediately release the specified key.
+    /// Accepts plain keys ("Z") or modifier combos ("Shift+Q", "Ctrl+E").
     /// </summary>
-    public void TestKey(char key)
+    public void TestKey(string keyStr)
     {
         if (!_isWindows)
         {
@@ -273,17 +356,37 @@ public class KeyboardPlayer
             return;
         }
 
-        key = char.ToUpper(key);
-        if (!VirtualKeyCodes.TryGetValue(key, out ushort vk))
+        if (!IsValidKeyString(keyStr))
         {
-            Console.WriteLine($"Unknown key: {key}");
+            Console.WriteLine($"Unknown key: {keyStr}");
             return;
         }
 
-        Console.WriteLine($"Sending key '{key}' (VK=0x{vk:X2}, Scan=0x{MapVirtualKey(vk, MAPVK_VK_TO_VSC):X2})...");
+        var (modifier, key) = ParseKeyString(keyStr);
+        if (!VirtualKeyCodes.TryGetValue(key, out ushort vk))
+        {
+            Console.WriteLine($"Unknown base key: {key}");
+            return;
+        }
+
+        string modName = modifier == VK_SHIFT ? "Shift+" : modifier == VK_CONTROL ? "Ctrl+" : "";
+        Console.WriteLine($"Sending key '{modName}{key}' (VK=0x{vk:X2}, Scan=0x{MapVirtualKey(vk, MAPVK_VK_TO_VSC):X2})...");
+
+        // Press modifier first if needed
+        if (modifier != 0)
+        {
+            SendKeyEvent(modifier, isKeyUp: false);
+            Thread.Sleep(ModifierSettleMs); // Let game register modifier
+        }
+
         PressKey(key);
         Thread.Sleep(50); // Brief hold
         ReleaseKey(key);
+
+        // Release modifier
+        if (modifier != 0)
+            SendKeyEvent(modifier, isKeyUp: true);
+
         Console.WriteLine("Key sent. Did the game receive it?");
     }
 
