@@ -153,6 +153,18 @@ public class NoteMapping
     }
 
     /// <summary>
+    /// Get the modifier type for a key string: "Shift", "Ctrl", or null for plain keys.
+    /// </summary>
+    public static string? GetModifier(string keyStr)
+    {
+        if (keyStr.StartsWith("Shift+", StringComparison.OrdinalIgnoreCase))
+            return "Shift";
+        if (keyStr.StartsWith("Ctrl+", StringComparison.OrdinalIgnoreCase))
+            return "Ctrl";
+        return null;
+    }
+
+    /// <summary>
     /// Check if the given MIDI note falls within our 36-key range
     /// (i.e. can be played without any snapping).
     /// </summary>

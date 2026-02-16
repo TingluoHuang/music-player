@@ -500,12 +500,25 @@ public class MidiConverter
     {
         return events.Select(e =>
         {
-            if (e.Keys.Count <= _maxSimultaneousKeys)
-                return e;
+            var keys = e.Keys;
+
+            // First, resolve mixed modifier conflicts.
+            // The game can't handle Shift+key and Ctrl+key pressed simultaneously.
+            keys = ResolveMixedModifiers(keys);
+
+            if (keys.Count <= _maxSimultaneousKeys)
+            {
+                return new Models.NoteEvent
+                {
+                    Time = e.Time,
+                    Keys = keys,
+                    Duration = e.Duration
+                };
+            }
 
             // Keep the highest note (melody) and lowest note (bass) for
             // the best musical spread, then fill remaining slots from the top.
-            var sortedKeys = e.Keys
+            var sortedKeys = keys
                 .Select(k => new { Key = k, Midi = _mapping.GetMidiNote(k) ?? 0 })
                 .OrderByDescending(k => k.Midi)
                 .ToList();
@@ -537,6 +550,43 @@ public class MidiConverter
                 Duration = e.Duration
             };
         }).ToList();
+    }
+
+    /// <summary>
+    /// Resolve mixed Shift/Ctrl modifiers in a chord.
+    /// The game cannot handle Shift+key and Ctrl+key pressed at the same time.
+    /// When a chord mixes both, keep the modifier group with more notes and
+    /// drop the conflicting chromatic notes (keep any plain/natural notes).
+    /// </summary>
+    private List<string> ResolveMixedModifiers(List<string> keys)
+    {
+        if (keys.Count <= 1)
+            return keys;
+
+        var plainKeys = new List<string>();
+        var shiftKeys = new List<string>();
+        var ctrlKeys = new List<string>();
+
+        foreach (var k in keys)
+        {
+            var mod = NoteMapping.GetModifier(k);
+            if (mod == "Shift")
+                shiftKeys.Add(k);
+            else if (mod == "Ctrl")
+                ctrlKeys.Add(k);
+            else
+                plainKeys.Add(k);
+        }
+
+        // No conflict if only one modifier type (or none) is present
+        if (shiftKeys.Count == 0 || ctrlKeys.Count == 0)
+            return keys;
+
+        // Conflict: keep the modifier group with more notes, drop the other
+        var kept = shiftKeys.Count >= ctrlKeys.Count ? shiftKeys : ctrlKeys;
+        var result = new List<string>(plainKeys);
+        result.AddRange(kept);
+        return result;
     }
 
     /// <summary>

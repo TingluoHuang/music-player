@@ -362,6 +362,33 @@ public class MidiConverterTests
     /// <summary>
     /// Create a simple MIDI file with a C major scale (C4-B4) for testing.
     /// </summary>
+    [Fact]
+    public void Convert_ChordSimplification_NoMixedModifiers()
+    {
+        // Create a chord with notes that would require both Shift and Ctrl:
+        // C#4 (61) = Shift+Z, Eb4 (63) = Ctrl+C, F#4 (66) = Shift+V
+        string testFile = CreateMixedModifierChordMidiFile();
+
+        try
+        {
+            var converter = new MidiConverter(maxSimultaneousKeys: 3);
+            var song = converter.Convert(testFile, quantizationMs: 0);
+
+            foreach (var note in song.Notes)
+            {
+                // No chord should have both Shift and Ctrl modifiers
+                bool hasShift = note.Keys.Any(k => NoteMapping.GetModifier(k) == "Shift");
+                bool hasCtrl = note.Keys.Any(k => NoteMapping.GetModifier(k) == "Ctrl");
+                Assert.False(hasShift && hasCtrl,
+                    $"Chord at t={note.Time} mixes Shift and Ctrl: [{string.Join(", ", note.Keys)}]");
+            }
+        }
+        finally
+        {
+            File.Delete(testFile);
+        }
+    }
+
     private static string CreateTestMidiFile()
     {
         var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
@@ -407,6 +434,43 @@ public class MidiConverterTests
             Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(120).MicrosecondsPerQuarterNote)
         { DeltaTime = 0 };
         events.Insert(0, tempoEvent2);
+
+        var midiFile = new Melanchall.DryWetMidi.Core.MidiFile(
+            new Melanchall.DryWetMidi.Core.TrackChunk(events));
+
+        string path = Path.GetTempFileName() + ".mid";
+        midiFile.Write(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Create a MIDI file with a chord that mixes Shift and Ctrl notes.
+    /// C#4 (61) = Shift+Z, Eb4 (63) = Ctrl+C, F#4 (66) = Shift+V — simultaneous.
+    /// </summary>
+    private static string CreateMixedModifierChordMidiFile()
+    {
+        var events = new List<Melanchall.DryWetMidi.Core.MidiEvent>();
+        int[] chordNotes = { 61, 63, 66 }; // C#4, Eb4, F#4
+
+        foreach (int note in chordNotes)
+        {
+            events.Add(new Melanchall.DryWetMidi.Core.NoteOnEvent(
+                (Melanchall.DryWetMidi.Common.SevenBitNumber)(byte)note,
+                (Melanchall.DryWetMidi.Common.SevenBitNumber)100)
+            { DeltaTime = 0 });
+        }
+        foreach (int note in chordNotes)
+        {
+            events.Add(new Melanchall.DryWetMidi.Core.NoteOffEvent(
+                (Melanchall.DryWetMidi.Common.SevenBitNumber)(byte)note,
+                (Melanchall.DryWetMidi.Common.SevenBitNumber)0)
+            { DeltaTime = note == chordNotes[0] ? 480 : 0L });
+        }
+
+        var tempoEvent = new Melanchall.DryWetMidi.Core.SetTempoEvent(
+            Melanchall.DryWetMidi.Interaction.Tempo.FromBeatsPerMinute(120).MicrosecondsPerQuarterNote)
+        { DeltaTime = 0 };
+        events.Insert(0, tempoEvent);
 
         var midiFile = new Melanchall.DryWetMidi.Core.MidiFile(
             new Melanchall.DryWetMidi.Core.TrackChunk(events));
