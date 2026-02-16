@@ -148,7 +148,7 @@ public class MidiConverterTests
             var tracks = MidiConverter.ListTracks(testFile);
             Assert.NotEmpty(tracks);
             // At least one track should have notes
-            Assert.True(tracks.Any(t => t.NoteCount > 0));
+            Assert.Contains(tracks, t => t.NoteCount > 0);
         }
         finally
         {
