@@ -67,18 +67,15 @@ public class MidiConverter
         // Simplify chords (max N simultaneous keys)
         var simplifiedEvents = SimplifyChords(mergedEvents);
 
-        // Normalize speed so the fastest note gap is playable
-        var normalizedEvents = NormalizeSpeed(simplifiedEvents);
-
         // Calculate effective BPM from actual note timing and clamp to target range
         int effectiveBpm = bpm;
-        (normalizedEvents, effectiveBpm) = ClampBpm(normalizedEvents, bpm, targetMinBpm: 110, targetMaxBpm: 130);
+        (simplifiedEvents, effectiveBpm) = ClampBpm(simplifiedEvents, bpm, targetMinBpm: 110, targetMaxBpm: 130);
 
         return new Song
         {
             Title = title,
             Bpm = effectiveBpm,
-            Notes = normalizedEvents
+            Notes = simplifiedEvents
         };
     }
 
@@ -423,46 +420,6 @@ public class MidiConverter
     }
 
     /// <summary>
-    /// Minimum gap in seconds between consecutive notes.
-    /// The game needs ~30ms key hold + modifier overhead; 100ms gives comfortable margin.
-    /// </summary>
-    private const double MinNoteGapSec = 0.100;
-
-    /// <summary>
-    /// If the smallest gap between consecutive notes is below MinNoteGapSec,
-    /// uniformly stretch all timing so that gap becomes exactly MinNoteGapSec.
-    /// This preserves rhythm proportionally while ensuring every note is playable.
-    /// </summary>
-    private static List<Models.NoteEvent> NormalizeSpeed(List<Models.NoteEvent> events)
-    {
-        if (events.Count < 2)
-            return events;
-
-        // Find the minimum time gap between consecutive notes
-        double minGap = double.MaxValue;
-        for (int i = 1; i < events.Count; i++)
-        {
-            double gap = events[i].Time - events[i - 1].Time;
-            if (gap > 0 && gap < minGap)
-                minGap = gap;
-        }
-
-        if (minGap >= MinNoteGapSec || minGap <= 0)
-            return events; // Already playable or only simultaneous notes
-
-        double scaleFactor = MinNoteGapSec / minGap;
-        double effectiveSpeed = 1.0 / scaleFactor;
-        Console.WriteLine($"Normalizing speed: {effectiveSpeed:F2}x (min gap was {minGap * 1000:F0}ms → {MinNoteGapSec * 1000:F0}ms)");
-
-        return events.Select(e => new Models.NoteEvent
-        {
-            Time = Math.Round(e.Time * scaleFactor, 3),
-            Keys = e.Keys,
-            Duration = Math.Round(e.Duration * scaleFactor, 3)
-        }).ToList();
-    }
-
-    /// <summary>
     /// Clamp the effective BPM to a target range (default 110-130).
     /// If the song's effective playback BPM falls outside this range, uniformly
     /// scale all note timings to bring it within range.
@@ -624,8 +581,8 @@ public class MidiConverter
     /// <summary>
     /// Resolve mixed Shift/Ctrl modifiers in a chord.
     /// The game cannot handle Shift+key and Ctrl+key pressed at the same time.
-    /// When a chord mixes both, keep the modifier group with more notes and
-    /// drop the conflicting chromatic notes (keep any plain/natural notes).
+    /// When a chord mixes both, keep the modifier group whose notes are higher
+    /// (melody is more important) and drop the conflicting notes.
     /// </summary>
     private List<string> ResolveMixedModifiers(List<string> keys)
     {
@@ -651,8 +608,10 @@ public class MidiConverter
         if (shiftKeys.Count == 0 || ctrlKeys.Count == 0)
             return keys;
 
-        // Conflict: keep the modifier group with more notes, drop the other
-        var kept = shiftKeys.Count >= ctrlKeys.Count ? shiftKeys : ctrlKeys;
+        // Conflict: keep the group with the highest note (melody priority)
+        int shiftMax = shiftKeys.Max(k => _mapping.GetMidiNote(k) ?? 0);
+        int ctrlMax = ctrlKeys.Max(k => _mapping.GetMidiNote(k) ?? 0);
+        var kept = shiftMax >= ctrlMax ? shiftKeys : ctrlKeys;
         var result = new List<string>(plainKeys);
         result.AddRange(kept);
         return result;
